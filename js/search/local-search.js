@@ -101,16 +101,58 @@ class LocalSearch {
     return result
   }
 
+  normalizeList (value) {
+    if (Array.isArray(value)) return value.map(item => String(item).trim()).filter(Boolean)
+    if (!value) return []
+    return String(value).split(',').map(item => item.trim()).filter(Boolean)
+  }
+
+  appendFieldResult (resultItem, label, value, keywords, searchValue = value) {
+    if (!value || !searchValue) return resultItem
+
+    const [indexOfSearchValue] = this.getIndexByWord(keywords, searchValue)
+    if (indexOfSearchValue.length === 0) return resultItem
+
+    const [indexOfValue] = this.getIndexByWord(keywords, value)
+    const shownValue = indexOfValue.length
+      ? this.highlightKeyword(value, this.mergeIntoSlice(0, value.length, indexOfValue))
+      : value
+
+    return `${resultItem}<p class="search-result"><strong>${label}:</strong> ${shownValue}</p>`
+  }
+
   getResultItems (keywords) {
     const resultItems = []
-    this.datas.forEach(({ title, content, url }) => {
+    this.datas.forEach(({ title, content, url, tags = [], categories = [], date = '', updated = '', date_text = '', updated_text = '' }) => {
+      const tagText = this.normalizeList(tags).join(', ')
+      const categoryText = this.normalizeList(categories).join(', ')
+      const dateSearchText = [date, date_text].filter(Boolean).join(' ')
+      const updatedSearchText = [updated, updated_text].filter(Boolean).join(' ')
+
       // The number of different keywords included in the article.
       const [indexOfTitle, keysOfTitle] = this.getIndexByWord(keywords, title)
       const [indexOfContent, keysOfContent] = this.getIndexByWord(keywords, content)
-      const includedCount = new Set([...keysOfTitle, ...keysOfContent]).size
+      const [indexOfTags, keysOfTags] = this.getIndexByWord(keywords, tagText)
+      const [indexOfCategories, keysOfCategories] = this.getIndexByWord(keywords, categoryText)
+      const [indexOfDate, keysOfDate] = this.getIndexByWord(keywords, dateSearchText)
+      const [indexOfUpdated, keysOfUpdated] = this.getIndexByWord(keywords, updatedSearchText)
+      const includedCount = new Set([
+        ...keysOfTitle,
+        ...keysOfContent,
+        ...keysOfTags,
+        ...keysOfCategories,
+        ...keysOfDate,
+        ...keysOfUpdated
+      ]).size
 
       // Show search results
-      const hitCount = indexOfTitle.length + indexOfContent.length
+      const hitCount =
+        indexOfTitle.length * 6 +
+        indexOfTags.length * 5 +
+        indexOfCategories.length * 4 +
+        indexOfDate.length * 3 +
+        indexOfUpdated.length * 2 +
+        indexOfContent.length
       if (hitCount === 0) return
 
       const slicesOfTitle = []
@@ -159,6 +201,11 @@ class LocalSearch {
         resultItem += `<p class="search-result">${this.highlightKeyword(content, slice)}...</p>`
       })
 
+      resultItem = this.appendFieldResult(resultItem, 'Tags', tagText, keywords)
+      resultItem = this.appendFieldResult(resultItem, 'Categories', categoryText, keywords)
+      resultItem = this.appendFieldResult(resultItem, 'Date', date, keywords, dateSearchText)
+      resultItem = this.appendFieldResult(resultItem, 'Updated', updated, keywords, updatedSearchText)
+
       resultItem += '</a></li>'
       resultItems.push({
         item: resultItem,
@@ -181,7 +228,11 @@ class LocalSearch {
           ? [...new DOMParser().parseFromString(res, 'text/xml').querySelectorAll('entry')].map(element => ({
               title: element.querySelector('title').textContent,
               content: element.querySelector('content').textContent,
-              url: element.querySelector('url').textContent
+              url: element.querySelector('url').textContent,
+              tags: [...element.querySelectorAll('tag')].map(item => item.textContent),
+              categories: [...element.querySelectorAll('category')].map(item => item.textContent),
+              date: element.querySelector('date') ? element.querySelector('date').textContent : '',
+              updated: element.querySelector('updated') ? element.querySelector('updated').textContent : ''
             }))
           : JSON.parse(res)
         // Only match articles with non-empty titles
@@ -189,6 +240,12 @@ class LocalSearch {
           data.title = data.title.trim()
           data.content = data.content ? data.content.trim().replace(/<[^>]+>/g, '') : ''
           data.url = decodeURIComponent(data.url).replace(/\/{2,}/g, '/')
+          data.tags = this.normalizeList(data.tags)
+          data.categories = this.normalizeList(data.categories)
+          data.date = data.date ? String(data.date).trim() : ''
+          data.updated = data.updated ? String(data.updated).trim() : ''
+          data.date_text = data.date_text ? String(data.date_text).trim() : ''
+          data.updated_text = data.updated_text ? String(data.updated_text).trim() : ''
           return data
         })
         // Remove loading animation
