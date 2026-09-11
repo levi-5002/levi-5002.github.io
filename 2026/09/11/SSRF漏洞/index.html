@@ -1,0 +1,662 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>SSRF漏洞 | levi2005's Blog</title><meta name="author" content="levi2005"><meta name="copyright" content="levi2005"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="SSRF 漏洞从原理到利用：URL、curl、Gopher 与内网服务安全">
+<meta property="og:type" content="article">
+<meta property="og:title" content="SSRF漏洞">
+<meta property="og:url" content="https://levi-5002.github.io/2026/09/11/SSRF%E6%BC%8F%E6%B4%9E/index.html">
+<meta property="og:site_name" content="levi2005&#39;s Blog">
+<meta property="og:description" content="SSRF 漏洞从原理到利用：URL、curl、Gopher 与内网服务安全">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://levi-5002.github.io/img/stcs/stcs-ssrf-cover.jpg">
+<meta property="article:published_time" content="2026-09-11T13:51:51.000Z">
+<meta property="article:modified_time" content="2026-09-11T13:55:22.075Z">
+<meta property="article:author" content="levi2005">
+<meta property="article:tag" content="CTF">
+<meta property="article:tag" content="WEB">
+<meta property="article:tag" content="渗透">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://levi-5002.github.io/img/stcs/stcs-ssrf-cover.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "SSRF漏洞",
+  "url": "https://levi-5002.github.io/2026/09/11/SSRF%E6%BC%8F%E6%B4%9E/",
+  "image": "https://levi-5002.github.io/img/stcs/stcs-ssrf-cover.jpg",
+  "datePublished": "2026-09-11T13:51:51.000Z",
+  "dateModified": "2026-09-11T13:55:22.075Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "levi2005",
+      "url": "https://levi-5002.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/favicon.ico"><link rel="canonical" href="https://levi-5002.github.io/2026/09/11/SSRF%E6%BC%8F%E6%B4%9E/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css?v=5.5.4"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.1.0/css/all.min.css"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!true && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":false,"pagination":{"enable":true,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'null',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid@4.13.0/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'SSRF漏洞',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" href="/css/home-music.css"><meta name="generator" content="Hexo 8.1.2"></head><body><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/stcs/stcs-ssrf-top.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">levi2005's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">SSRF漏洞</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> 搜索</span></span></div></div></nav><div id="post-info"><h1 class="post-title">SSRF漏洞</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-09-11T13:51:51.000Z" title="发表于 2026-09-11 21:51:51">2026-09-11</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-09-11T13:55:22.075Z" title="更新于 2026-09-11 21:55:22">2026-09-11</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E6%B8%97%E9%80%8F/">渗透</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="SSRF-漏洞从原理到利用：URL、curl、Gopher-与内网服务安全"><a href="#SSRF-漏洞从原理到利用：URL、curl、Gopher-与内网服务安全" class="headerlink" title="SSRF 漏洞从原理到利用：URL、curl、Gopher 与内网服务安全"></a>SSRF 漏洞从原理到利用：URL、curl、Gopher 与内网服务安全</h1><p>SSRF，全称 <strong>Server-Side Request Forgery，服务器端请求伪造</strong>，是一类非常典型的服务端安全漏洞。</p>
+<p>它最核心的特点不是“攻击者直接访问目标”，而是：</p>
+<blockquote>
+<p><strong>攻击者想办法让目标服务器替自己发送网络请求。</strong></p>
+</blockquote>
+<p>由于服务器往往能够访问普通用户无法直接访问的内网、管理接口、本机服务甚至云环境内部接口，因此 SSRF 的真正危险之处，在于攻击者可能借助一台暴露在公网中的服务器，将攻击范围进一步延伸到服务器内部网络。</p>
+<p>本文从 SSRF 的形成原理开始，逐步介绍常见漏洞入口、URL 与 curl 的关系、Gopher 协议、内网服务访问、URL 解析绕过以及实际防御方法。</p>
+<blockquote>
+<p>本文内容仅用于 CTF、靶场、安全研究及经过授权的测试环境。</p>
+</blockquote>
+<hr>
+<h2 id="1-SSRF-到底是什么"><a href="#1-SSRF-到底是什么" class="headerlink" title="1. SSRF 到底是什么"></a>1. SSRF 到底是什么</h2><p>先看一个正常的网站访问过程：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">用户</span><br><span class="line">  ↓</span><br><span class="line">访问 A 网站</span><br><span class="line">  ↓</span><br><span class="line">A 网站服务器处理请求</span><br><span class="line">  ↓</span><br><span class="line">返回响应</span><br></pre></td></tr></table></figure>
+
+<p>这种情况下，用户直接访问的是 A 网站。</p>
+<p>但很多网站本身还具有“代替用户获取远程资源”的功能，比如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https://example.com/getImage?url=https://img.example.org/a.jpg</span><br></pre></td></tr></table></figure>
+
+<p>后台可能执行类似下面的逻辑：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">用户提交 URL</span><br><span class="line">      ↓</span><br><span class="line">Web 服务器读取 URL</span><br><span class="line">      ↓</span><br><span class="line">服务器主动请求远程资源</span><br><span class="line">      ↓</span><br><span class="line">服务器将结果返回给用户</span><br></pre></td></tr></table></figure>
+
+<p>问题就出现在这里。</p>
+<p>如果服务器完全信任用户提交的 <code>url</code> 参数，那么攻击者可能把：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https://img.example.org/a.jpg</span><br></pre></td></tr></table></figure>
+
+<p>替换成：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http://127.0.0.1/</span><br></pre></td></tr></table></figure>
+
+<p>或者某个内网地址：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http://192.168.1.10/</span><br></pre></td></tr></table></figure>
+
+<p>此时实际发送请求的就不再是攻击者，而是目标服务器。</p>
+<p>整个过程变成：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">攻击者</span><br><span class="line">   ↓</span><br><span class="line">提交恶意 URL</span><br><span class="line">   ↓</span><br><span class="line">存在 SSRF 的 Web 服务器</span><br><span class="line">   ↓</span><br><span class="line">服务器主动访问目标</span><br><span class="line">   ↓</span><br><span class="line">127.0.0.1 / 内网服务器 / 内部 API</span><br></pre></td></tr></table></figure>
+
+<p>所以可以将 SSRF 简单理解为：</p>
+<blockquote>
+<p><strong>攻击者控制了服务器“要访问哪里”。</strong></p>
+</blockquote>
+<p>这也是 SSRF 和普通客户端漏洞最大的区别。</p>
+<hr>
+<h2 id="2-SSRF-为什么会产生"><a href="#2-SSRF-为什么会产生" class="headerlink" title="2. SSRF 为什么会产生"></a>2. SSRF 为什么会产生</h2><p>SSRF 的根本原因通常不是某一个函数存在漏洞，而是：</p>
+<blockquote>
+<p><strong>程序允许用户影响服务器发起请求的目标，同时缺少足够严格的目标验证。</strong></p>
+</blockquote>
+<p>例如下面这个简化后的 PHP 代码：</p>
+<figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">&lt;?php</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> (<span class="keyword">isset</span>(<span class="variable">$_POST</span>[<span class="string">&#x27;url&#x27;</span>])) &#123;</span><br><span class="line">    <span class="variable">$content</span> = <span class="title function_ invoke__">file_get_contents</span>(<span class="variable">$_POST</span>[<span class="string">&#x27;url&#x27;</span>]);</span><br><span class="line"></span><br><span class="line">    <span class="variable">$filename</span> = <span class="string">&#x27;./images/&#x27;</span> . <span class="title function_ invoke__">rand</span>() . <span class="string">&#x27;.jpg&#x27;</span>;</span><br><span class="line">    <span class="title function_ invoke__">file_put_contents</span>(<span class="variable">$filename</span>, <span class="variable">$content</span>);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">echo</span> <span class="string">&#x27;&lt;img src=&quot;&#x27;</span> . <span class="variable">$filename</span> . <span class="string">&#x27;&quot;&gt;&#x27;</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>开发者原本可能只是希望实现：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">输入网络图片地址</span><br><span class="line">        ↓</span><br><span class="line">服务器下载图片</span><br><span class="line">        ↓</span><br><span class="line">保存到本地</span><br></pre></td></tr></table></figure>
+
+<p>例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">url=https://example.com/test.jpg</span><br></pre></td></tr></table></figure>
+
+<p>但是如果没有检查 URL，攻击者就可能提交：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">url=http://127.0.0.1/</span><br></pre></td></tr></table></figure>
+
+<p>于是：</p>
+<figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="title function_ invoke__">file_get_contents</span>()</span><br></pre></td></tr></table></figure>
+
+<p>就可能替攻击者访问本机服务。</p>
+<p>同样的问题也可能出现在：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">curl</span><br><span class="line">requests</span><br><span class="line">urllib</span><br><span class="line">HttpClient</span><br><span class="line">fetch</span><br><span class="line">URLConnection</span><br><span class="line">file_get_contents</span><br></pre></td></tr></table></figure>
+
+<p>等网络请求组件中。</p>
+<p>因此判断 SSRF 时，不应该只盯着某一个函数，而应该寻找：</p>
+<blockquote>
+<p><strong>“用户输入 → URL → 服务端主动请求”这条数据流。</strong></p>
+</blockquote>
+<hr>
+<h2 id="3-哪些地方容易出现-SSRF"><a href="#3-哪些地方容易出现-SSRF" class="headerlink" title="3. 哪些地方容易出现 SSRF"></a>3. 哪些地方容易出现 SSRF</h2><p>寻找 SSRF 最重要的思路是：</p>
+<blockquote>
+<p><strong>寻找能够让服务器主动连接其他地址的功能。</strong></p>
+</blockquote>
+<p>常见位置包括：</p>
+<h3 id="远程图片或文件获取"><a href="#远程图片或文件获取" class="headerlink" title="远程图片或文件获取"></a>远程图片或文件获取</h3><p>例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">Upload from URL</span><br><span class="line">Import from URL</span><br><span class="line">头像 URL</span><br><span class="line">图片代理</span><br><span class="line">远程附件下载</span><br></pre></td></tr></table></figure>
+
+<p>例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">/image?url=https://example.com/a.png</span><br></pre></td></tr></table></figure>
+
+<p>这是最经典的 SSRF 场景。</p>
+<h3 id="URL-预览功能"><a href="#URL-预览功能" class="headerlink" title="URL 预览功能"></a>URL 预览功能</h3><p>例如聊天软件、论坛或者社交平台：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">用户发送 URL</span><br><span class="line">    ↓</span><br><span class="line">服务器抓取网页</span><br><span class="line">    ↓</span><br><span class="line">生成标题、描述、缩略图</span><br></pre></td></tr></table></figure>
+
+<p>如果 URL 缺乏限制，同样可能产生 SSRF。</p>
+<h3 id="Webhook-和回调地址"><a href="#Webhook-和回调地址" class="headerlink" title="Webhook 和回调地址"></a>Webhook 和回调地址</h3><p>例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">callback_url</span><br><span class="line">webhook</span><br><span class="line">notify_url</span><br><span class="line">return_url</span><br></pre></td></tr></table></figure>
+
+<p>服务器会主动向用户指定的地址发送请求，因此也是 SSRF 检查重点。</p>
+<h3 id="RSS、代理和数据导入"><a href="#RSS、代理和数据导入" class="headerlink" title="RSS、代理和数据导入"></a>RSS、代理和数据导入</h3><p>例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">RSS Feed</span><br><span class="line">API Proxy</span><br><span class="line">URL Fetch</span><br><span class="line">Import / Export</span><br></pre></td></tr></table></figure>
+
+<p>这些功能本身就需要服务器访问外部资源。</p>
+<h3 id="文件和媒体处理功能"><a href="#文件和媒体处理功能" class="headerlink" title="文件和媒体处理功能"></a>文件和媒体处理功能</h3><p>例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">PDF</span><br><span class="line">DOCX</span><br><span class="line">XML</span><br><span class="line">图片</span><br><span class="line">视频</span><br><span class="line">FFmpeg</span><br><span class="line">ImageMagick</span><br></pre></td></tr></table></figure>
+
+<p>某些文件格式可以引用远程资源，如果解析组件允许加载外部内容，也可能间接形成 SSRF。</p>
+<p>所以做代码审计时，可以重点搜索：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">url</span><br><span class="line">uri</span><br><span class="line">host</span><br><span class="line">endpoint</span><br><span class="line">callback</span><br><span class="line">webhook</span><br><span class="line">proxy</span><br><span class="line">fetch</span><br><span class="line">download</span><br><span class="line">image</span><br><span class="line">remote</span><br></pre></td></tr></table></figure>
+
+<p>再顺着数据流观察这些参数最终是否进入网络请求函数。</p>
+<hr>
+<h2 id="4-URL、curl-和-SSRF-是什么关系"><a href="#4-URL、curl-和-SSRF-是什么关系" class="headerlink" title="4. URL、curl 和 SSRF 是什么关系"></a>4. URL、curl 和 SSRF 是什么关系</h2><p>这里很容易混淆三个概念：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">URL</span><br><span class="line">curl</span><br><span class="line">SSRF</span><br></pre></td></tr></table></figure>
+
+<p>它们实际上完全不是一回事。</p>
+<h3 id="URL-是“地址”"><a href="#URL-是“地址”" class="headerlink" title="URL 是“地址”"></a>URL 是“地址”</h3><p>URL 可以理解为：</p>
+<blockquote>
+<p>告诉程序“去哪里，以及使用什么协议”。</p>
+</blockquote>
+<p>例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">http://example.com/</span><br><span class="line">https://example.com/</span><br><span class="line">file:///etc/passwd</span><br><span class="line">ftp://example.com/</span><br></pre></td></tr></table></figure>
+
+<p>URL 通常可以拆成：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">scheme://host:port/path</span><br></pre></td></tr></table></figure>
+
+<p>例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http://127.0.0.1:8080/admin</span><br></pre></td></tr></table></figure>
+
+<p>其中：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">http          → 协议</span><br><span class="line">127.0.0.1     → 主机</span><br><span class="line">8080          → 端口</span><br><span class="line">/admin        → 路径</span><br></pre></td></tr></table></figure>
+
+<h3 id="curl-是“发送请求的工具”"><a href="#curl-是“发送请求的工具”" class="headerlink" title="curl 是“发送请求的工具”"></a>curl 是“发送请求的工具”</h3><p>curl 可以理解为一个网络客户端。</p>
+<p>例如命令行：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">curl http://example.com</span><br></pre></td></tr></table></figure>
+
+<p>意思是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">curl</span><br><span class="line"> ↓</span><br><span class="line">解析 URL</span><br><span class="line"> ↓</span><br><span class="line">建立 TCP 连接</span><br><span class="line"> ↓</span><br><span class="line">发送 HTTP 请求</span><br><span class="line"> ↓</span><br><span class="line">接收响应</span><br></pre></td></tr></table></figure>
+
+<p>很多程序内部使用的并不是 curl 命令本身，而是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">libcurl</span><br></pre></td></tr></table></figure>
+
+<p>例如 PHP：</p>
+<figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="variable">$ch</span> = <span class="title function_ invoke__">curl_init</span>(<span class="variable">$url</span>);</span><br><span class="line"><span class="title function_ invoke__">curl_exec</span>(<span class="variable">$ch</span>);</span><br></pre></td></tr></table></figure>
+
+<p>如果 <code>$url</code> 完全由用户控制，就可能形成 SSRF。</p>
+<p>因此：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">URL = 请求目标的描述</span><br><span class="line">curl = 发请求的工具</span><br><span class="line">SSRF = 用户利用服务器的请求能力访问非预期目标</span><br></pre></td></tr></table></figure>
+
+<p>三者之间的关系可以表示为：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">攻击者控制 URL</span><br><span class="line">        ↓</span><br><span class="line">服务器调用 curl/libcurl</span><br><span class="line">        ↓</span><br><span class="line">服务器向指定地址发送请求</span><br><span class="line">        ↓</span><br><span class="line">产生 SSRF</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="5-SSRF-为什么经常和-Gopher、Redis-一起出现"><a href="#5-SSRF-为什么经常和-Gopher、Redis-一起出现" class="headerlink" title="5. SSRF 为什么经常和 Gopher、Redis 一起出现"></a>5. SSRF 为什么经常和 Gopher、Redis 一起出现</h2><p>理解 SSRF 后，就会遇到一个新的问题。</p>
+<p>假设我们只能让服务器访问：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http://127.0.0.1/</span><br></pre></td></tr></table></figure>
+
+<p>那么通常只能发送普通 HTTP 请求。</p>
+<p>但如果内网服务使用的不是 HTTP 呢？</p>
+<p>例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">Redis</span><br><span class="line">Memcached</span><br><span class="line">SMTP</span><br><span class="line">某些数据库服务</span><br><span class="line">自定义 TCP 服务</span><br></pre></td></tr></table></figure>
+
+<p>这时候就涉及 Gopher。</p>
+<h3 id="Gopher-的关键价值"><a href="#Gopher-的关键价值" class="headerlink" title="Gopher 的关键价值"></a>Gopher 的关键价值</h3><p>从 SSRF 利用角度理解，Gopher 最重要的特点可以简单概括为：</p>
+<blockquote>
+<p><strong>在一些支持它的网络库中，可以较自由地向目标 TCP 端口发送数据。</strong></p>
+</blockquote>
+<p>典型形式为：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">gopher://host:port/_data</span><br></pre></td></tr></table></figure>
+
+<p>例如在实验环境中，可以构造一个简单 HTTP 请求：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">GET / HTTP/1.1</span><br><span class="line">Host: 127.0.0.1</span><br></pre></td></tr></table></figure>
+
+<p>转换成 URL 编码后，大致会出现：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">%20    空格</span><br><span class="line">%0D%0A 换行</span><br></pre></td></tr></table></figure>
+
+<p>于是服务器实际发送的数据就不再只是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">GET /xxx</span><br></pre></td></tr></table></figure>
+
+<p>而可以构造成更加完整的协议数据。</p>
+<p>这也是为什么 Gopher 在 SSRF 中非常重要：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">普通 HTTP SSRF</span><br><span class="line">        ↓</span><br><span class="line">主要访问 HTTP 服务</span><br><span class="line"></span><br><span class="line">Gopher SSRF</span><br><span class="line">        ↓</span><br><span class="line">能够构造更底层的 TCP 数据</span><br><span class="line">        ↓</span><br><span class="line">可能与其他应用层协议交互</span><br></pre></td></tr></table></figure>
+
+<h3 id="Redis-为什么能够和-SSRF-联系起来"><a href="#Redis-为什么能够和-SSRF-联系起来" class="headerlink" title="Redis 为什么能够和 SSRF 联系起来"></a>Redis 为什么能够和 SSRF 联系起来</h3><p>这里必须区分一个概念：</p>
+<blockquote>
+<p><strong>不是 Redis 存在 SSRF，而是 SSRF 可能被用于访问内网 Redis。</strong></p>
+</blockquote>
+<p>Redis 通常监听：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">6379</span><br></pre></td></tr></table></figure>
+
+<p>如果 Redis 只允许内网访问，那么攻击者在公网通常无法直接连接：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">攻击者</span><br><span class="line">   X</span><br><span class="line">Redis:6379</span><br></pre></td></tr></table></figure>
+
+<p>但是存在 SSRF 的服务器可能可以访问：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">攻击者</span><br><span class="line">  ↓</span><br><span class="line">Web SSRF</span><br><span class="line">  ↓</span><br><span class="line">目标服务器</span><br><span class="line">  ↓</span><br><span class="line">127.0.0.1:6379</span><br></pre></td></tr></table></figure>
+
+<p>如果 SSRF 组件还支持 Gopher，那么理论上就可以将符合 Redis 协议格式的数据发送到 Redis。</p>
+<p>所以真正的攻击链是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">SSRF</span><br><span class="line"> ↓</span><br><span class="line">访问内网 TCP 服务</span><br><span class="line"> ↓</span><br><span class="line">Gopher 构造协议数据</span><br><span class="line"> ↓</span><br><span class="line">Redis / SMTP / Memcached 等服务</span><br></pre></td></tr></table></figure>
+
+<p>Gopherus 这类工具的作用，本质上也是：</p>
+<blockquote>
+<p>根据目标服务的协议格式，帮助生成适用于 Gopher URL 的数据。</p>
+</blockquote>
+<p>不过在现代环境下，是否能够真正使用这种方式，还会受到很多因素限制，例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">请求库是否支持 gopher://</span><br><span class="line">Redis 是否要求认证</span><br><span class="line">Redis protected-mode</span><br><span class="line">网络 ACL</span><br><span class="line">容器网络隔离</span><br><span class="line">URL Scheme 白名单</span><br><span class="line">服务版本</span><br></pre></td></tr></table></figure>
+
+<p>因此不能简单认为：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">发现 SSRF = 一定能打 Redis</span><br></pre></td></tr></table></figure>
+
+<p>而应该理解成：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">SSRF 提供网络访问能力</span><br><span class="line">+</span><br><span class="line">Gopher 提供协议构造能力</span><br><span class="line">+</span><br><span class="line">内网服务配置不安全</span><br><span class="line">=</span><br><span class="line">可能形成进一步的攻击链</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="6-SSRF-的常见利用与绕过思路"><a href="#6-SSRF-的常见利用与绕过思路" class="headerlink" title="6. SSRF 的常见利用与绕过思路"></a>6. SSRF 的常见利用与绕过思路</h2><p>实际 SSRF 测试中，经常遇到各种限制。</p>
+<p>例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">只允许 HTTP / HTTPS</span><br><span class="line"></span><br><span class="line">禁止访问 127.0.0.1</span><br><span class="line"></span><br><span class="line">禁止访问内网 IP</span><br><span class="line"></span><br><span class="line">限制 Host</span><br><span class="line"></span><br><span class="line">限制端口</span><br><span class="line"></span><br><span class="line">禁止跳转</span><br><span class="line"></span><br><span class="line">只返回部分响应</span><br></pre></td></tr></table></figure>
+
+<p>因此 SSRF 测试的核心，很大一部分其实是在研究：</p>
+<blockquote>
+<p><strong>服务器到底如何解析这个 URL。</strong></p>
+</blockquote>
+<h3 id="IP-地址的不同表示形式"><a href="#IP-地址的不同表示形式" class="headerlink" title="IP 地址的不同表示形式"></a>IP 地址的不同表示形式</h3><p>最经典的目标是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">127.0.0.1</span><br></pre></td></tr></table></figure>
+
+<p>但在部分解析环境中还可能存在其他合法表示方式，例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">127.1</span><br></pre></td></tr></table></figure>
+
+<p>有些程序、语言或操作系统可能最终仍会把它解析成本机回环地址。</p>
+<p>历史上还出现过：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">十进制</span><br><span class="line">八进制</span><br><span class="line">十六进制</span><br><span class="line">IPv6</span><br><span class="line">IPv4-Mapped IPv6</span><br></pre></td></tr></table></figure>
+
+<p>等不同地址表示方法导致过滤器失效的问题。</p>
+<p>因此防护 SSRF 时不能只做：</p>
+<figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (<span class="variable">$host</span> == <span class="string">&quot;127.0.0.1&quot;</span>) &#123;</span><br><span class="line">    <span class="keyword">die</span>();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>因为：</p>
+<blockquote>
+<p>字符串不同，不代表最终解析出来的 IP 不同。</p>
+</blockquote>
+<hr>
+<h3 id="localhost-与特殊地址"><a href="#localhost-与特殊地址" class="headerlink" title="localhost 与特殊地址"></a>localhost 与特殊地址</h3><p>常见本机相关地址包括：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">127.0.0.1</span><br><span class="line">localhost</span><br><span class="line">::1</span><br></pre></td></tr></table></figure>
+
+<p>除此之外，一些特殊地址在不同系统、不同网络库中的处理方式也可能存在差异。</p>
+<p>因此安全检测不应该根据：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">URL 字符串长什么样</span><br></pre></td></tr></table></figure>
+
+<p>来判断。</p>
+<p>而应该：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">解析域名</span><br><span class="line">   ↓</span><br><span class="line">得到真实 IP</span><br><span class="line">   ↓</span><br><span class="line">判断 IP 所属网段</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h3 id="HTTP-302-跳转"><a href="#HTTP-302-跳转" class="headerlink" title="HTTP 302 跳转"></a>HTTP 302 跳转</h3><p>假设程序检查：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https://example.com</span><br></pre></td></tr></table></figure>
+
+<p>发现它是公网地址，于是允许访问。</p>
+<p>但如果：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">https://example.com</span><br><span class="line">        ↓</span><br><span class="line">      302</span><br><span class="line">        ↓</span><br><span class="line">http://127.0.0.1/</span><br></pre></td></tr></table></figure>
+
+<p>而 HTTP 客户端自动跟随跳转：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">CURLOPT_FOLLOWLOCATION = true</span><br></pre></td></tr></table></figure>
+
+<p>就有可能出现：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">第一次检查：公网 IP</span><br><span class="line">第二次请求：内网 IP</span><br></pre></td></tr></table></figure>
+
+<p>因此安全防护不能只检查初始 URL。</p>
+<p>每一次跳转后的新地址都应该重新验证。</p>
+<hr>
+<h3 id="与-URL-UserInfo"><a href="#与-URL-UserInfo" class="headerlink" title="@ 与 URL UserInfo"></a><code>@</code> 与 URL UserInfo</h3><p>URL 本身允许出现用户信息：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http://user:password@example.com/</span><br></pre></td></tr></table></figure>
+
+<p>其中：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">user:password@</span><br></pre></td></tr></table></figure>
+
+<p>属于 UserInfo。</p>
+<p>这意味着下面这种 URL：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http://aaa@bbb.com/</span><br></pre></td></tr></table></figure>
+
+<p>实际 Host 通常是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">bbb.com</span><br></pre></td></tr></table></figure>
+
+<p>而不是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">aaa</span><br></pre></td></tr></table></figure>
+
+<p>历史上如果：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">安全检测函数</span><br></pre></td></tr></table></figure>
+
+<p>和：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">真正发请求的网络库</span><br></pre></td></tr></table></figure>
+
+<p>对于 <code>@</code> 的解析结果不同，就可能出现 SSRF 绕过。</p>
+<p>因此看到类似：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">http://trusted.com@127.0.0.1/</span><br></pre></td></tr></table></figure>
+
+<p>时，不应该把它理解成某种特殊 SSRF 语法。</p>
+<p>它利用的其实是：</p>
+<blockquote>
+<p>URL 本身的 UserInfo 语法以及不同解析器之间可能存在的差异。</p>
+</blockquote>
+<hr>
+<h3 id="URL-Parser-差异"><a href="#URL-Parser-差异" class="headerlink" title="URL Parser 差异"></a>URL Parser 差异</h3><p>这是 SSRF 中非常重要的一类漏洞。</p>
+<p>例如程序可能先使用：</p>
+<figure class="highlight php"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="title function_ invoke__">parse_url</span>()</span><br></pre></td></tr></table></figure>
+
+<p>判断：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">Host</span><br><span class="line">Port</span><br><span class="line">Scheme</span><br></pre></td></tr></table></figure>
+
+<p>之后再使用：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">curl</span><br><span class="line">readfile</span><br><span class="line">file_get_contents</span><br></pre></td></tr></table></figure>
+
+<p>真正访问 URL。</p>
+<p>于是形成：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">用户 URL</span><br><span class="line">   ↓</span><br><span class="line">parse_url()</span><br><span class="line">   ↓</span><br><span class="line">安全检查</span><br><span class="line">   ↓</span><br><span class="line">curl/readfile</span><br><span class="line">   ↓</span><br><span class="line">实际连接</span><br></pre></td></tr></table></figure>
+
+<p>如果两个组件对于特殊 URL 的理解不同：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">Parser A 认为 Host = A</span><br><span class="line"></span><br><span class="line">Parser B 认为 Host = B</span><br></pre></td></tr></table></figure>
+
+<p>攻击者就可能：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">让安全检查看到公网地址</span><br><span class="line">        ↓</span><br><span class="line">让真正的请求组件访问内网地址</span><br></pre></td></tr></table></figure>
+
+<p>这类问题通常被称为：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">URL Parser Confusion</span><br></pre></td></tr></table></figure>
+
+<p>或者：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">URL Parser Differential</span><br></pre></td></tr></table></figure>
+
+<p>所以 SSRF 并不只是一个简单的：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">过滤 127.0.0.1</span><br></pre></td></tr></table></figure>
+
+<p>问题。</p>
+<p>它实际上涉及：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">URL 标准</span><br><span class="line">DNS</span><br><span class="line">HTTP Redirect</span><br><span class="line">IP 地址解析</span><br><span class="line">不同语言 URL Parser</span><br><span class="line">网络库行为</span><br></pre></td></tr></table></figure>
+
+<p>多个层面的交互。</p>
+<hr>
+<h2 id="7-SSRF-应该如何防御"><a href="#7-SSRF-应该如何防御" class="headerlink" title="7. SSRF 应该如何防御"></a>7. SSRF 应该如何防御</h2><p>相比研究各种绕过方式，真正可靠的 SSRF 防御原则其实更加重要。</p>
+<h3 id="优先使用白名单"><a href="#优先使用白名单" class="headerlink" title="优先使用白名单"></a>优先使用白名单</h3><p>如果业务只需要访问固定的网站，例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">api.example.com</span><br><span class="line">img.example.com</span><br></pre></td></tr></table></figure>
+
+<p>那么最安全的方式不是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">禁止坏地址</span><br></pre></td></tr></table></figure>
+
+<p>而是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">只允许业务真正需要的地址</span><br></pre></td></tr></table></figure>
+
+<p>即：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Allow List &gt; Block List</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h3 id="限制-URL-Scheme"><a href="#限制-URL-Scheme" class="headerlink" title="限制 URL Scheme"></a>限制 URL Scheme</h3><p>例如业务只需要：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https</span><br></pre></td></tr></table></figure>
+
+<p>那么就只允许：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">https://</span><br></pre></td></tr></table></figure>
+
+<p>而明确拒绝：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">file://</span><br><span class="line">gopher://</span><br><span class="line">dict://</span><br><span class="line">ftp://</span><br><span class="line">其他非业务协议</span><br></pre></td></tr></table></figure>
+
+<p>不要简单使用：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">startsWith(&quot;http&quot;)</span><br></pre></td></tr></table></figure>
+
+<p>或者：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">/^https/</span><br></pre></td></tr></table></figure>
+
+<p>这种字符串匹配来判断协议。</p>
+<p>应该使用标准 URL Parser 解析 Scheme。</p>
+<hr>
+<h3 id="解析并检查真实-IP"><a href="#解析并检查真实-IP" class="headerlink" title="解析并检查真实 IP"></a>解析并检查真实 IP</h3><p>正确的思路应该是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">用户 URL</span><br><span class="line">    ↓</span><br><span class="line">标准 URL Parser</span><br><span class="line">    ↓</span><br><span class="line">获取 hostname</span><br><span class="line">    ↓</span><br><span class="line">DNS Resolve</span><br><span class="line">    ↓</span><br><span class="line">得到真实 IP</span><br><span class="line">    ↓</span><br><span class="line">检查 IP</span><br></pre></td></tr></table></figure>
+
+<p>需要重点限制：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">127.0.0.0/8</span><br><span class="line">10.0.0.0/8</span><br><span class="line">172.16.0.0/12</span><br><span class="line">192.168.0.0/16</span><br><span class="line">169.254.0.0/16</span><br><span class="line">::1</span><br><span class="line">IPv6 私有地址</span><br><span class="line">链路本地地址</span><br><span class="line">其他不应该访问的保留地址</span><br></pre></td></tr></table></figure>
+
+<p>而不是只过滤：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">127.0.0.1</span><br><span class="line">localhost</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h3 id="防止-DNS-Rebinding"><a href="#防止-DNS-Rebinding" class="headerlink" title="防止 DNS Rebinding"></a>防止 DNS Rebinding</h3><p>即使第一次 DNS 查询得到：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">公网 IP</span><br></pre></td></tr></table></figure>
+
+<p>也不能完全相信之后连接时得到的 IP 一定相同。</p>
+<p>更加严格的实现需要保证：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">安全检查使用的 IP</span><br><span class="line">        =</span><br><span class="line">实际建立连接使用的 IP</span><br></pre></td></tr></table></figure>
+
+<p>同时对重定向后的地址重新执行检查。</p>
+<hr>
+<h3 id="谨慎处理-Redirect"><a href="#谨慎处理-Redirect" class="headerlink" title="谨慎处理 Redirect"></a>谨慎处理 Redirect</h3><p>如果没有业务需求，可以禁止自动跳转。</p>
+<p>例如 libcurl 中需要特别注意：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">CURLOPT_FOLLOWLOCATION</span><br></pre></td></tr></table></figure>
+
+<p>如果必须允许跳转，则应该：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">第一次 URL</span><br><span class="line">   ↓</span><br><span class="line">检查</span><br><span class="line"></span><br><span class="line">302 Location</span><br><span class="line">   ↓</span><br><span class="line">重新解析</span><br><span class="line">   ↓</span><br><span class="line">重新 DNS Resolve</span><br><span class="line">   ↓</span><br><span class="line">重新检查 IP</span><br></pre></td></tr></table></figure>
+
+<p>而不是只检查第一次请求。</p>
+<hr>
+<h3 id="内网服务自身也必须鉴权"><a href="#内网服务自身也必须鉴权" class="headerlink" title="内网服务自身也必须鉴权"></a>内网服务自身也必须鉴权</h3><p>不能因为某个服务：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">只能从内网访问</span><br></pre></td></tr></table></figure>
+
+<p>就认为它一定安全。</p>
+<p>例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">Redis</span><br><span class="line">Elasticsearch</span><br><span class="line">MongoDB</span><br><span class="line">管理后台</span><br><span class="line">内部 API</span><br></pre></td></tr></table></figure>
+
+<p>都应该具有自己的认证和权限控制。</p>
+<p>因为一旦某台 Web 服务器出现：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">SSRF</span><br><span class="line">RCE</span><br><span class="line">代理配置错误</span><br></pre></td></tr></table></figure>
+
+<p>所谓：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">“只有内网能访问”</span><br></pre></td></tr></table></figure>
+
+<p>这一层保护就可能被绕过。</p>
+<hr>
+<h3 id="从网络层限制服务器出站访问"><a href="#从网络层限制服务器出站访问" class="headerlink" title="从网络层限制服务器出站访问"></a>从网络层限制服务器出站访问</h3><p>这是非常有效的一层保护。</p>
+<p>例如 Web 服务器原则上只需要访问：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">数据库</span><br><span class="line">指定 API</span><br><span class="line">CDN</span><br><span class="line">对象存储</span><br></pre></td></tr></table></figure>
+
+<p>那么可以通过：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">Firewall</span><br><span class="line">Security Group</span><br><span class="line">ACL</span><br><span class="line">Kubernetes NetworkPolicy</span><br><span class="line">Service Mesh</span><br></pre></td></tr></table></figure>
+
+<p>限制其访问其他地址。</p>
+<p>最终形成：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">应用层校验</span><br><span class="line">+</span><br><span class="line">网络层限制</span><br><span class="line">+</span><br><span class="line">内部服务鉴权</span><br></pre></td></tr></table></figure>
+
+<p>多层防御。</p>
+<hr>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>SSRF 看起来只是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">服务器替用户请求了一个 URL</span><br></pre></td></tr></table></figure>
+
+<p>但它背后真正涉及的是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">URL 解析</span><br><span class="line">      ↓</span><br><span class="line">DNS 解析</span><br><span class="line">      ↓</span><br><span class="line">IP 地址判断</span><br><span class="line">      ↓</span><br><span class="line">TCP 连接</span><br><span class="line">      ↓</span><br><span class="line">HTTP / 其他应用层协议</span><br><span class="line">      ↓</span><br><span class="line">内网服务</span><br></pre></td></tr></table></figure>
+
+<p>理解 SSRF 时，可以牢牢记住下面这条主线：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">用户能否控制 URL？</span><br><span class="line">        ↓</span><br><span class="line">服务器是否会主动请求？</span><br><span class="line">        ↓</span><br><span class="line">能够访问哪些 IP？</span><br><span class="line">        ↓</span><br><span class="line">能够访问哪些端口？</span><br><span class="line">        ↓</span><br><span class="line">支持哪些协议？</span><br><span class="line">        ↓</span><br><span class="line">能否控制请求内容？</span><br><span class="line">        ↓</span><br><span class="line">内网服务是否存在未授权功能？</span><br></pre></td></tr></table></figure>
+
+<p>其中：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">URL</span><br></pre></td></tr></table></figure>
+
+<p>负责描述“访问哪里”，</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">curl / libcurl</span><br></pre></td></tr></table></figure>
+
+<p>负责“发送请求”，</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">SSRF</span><br></pre></td></tr></table></figure>
+
+<p>让攻击者能够借服务器身份访问其他目标，</p>
+<p>而：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Gopher</span><br></pre></td></tr></table></figure>
+
+<p>则在部分 SSRF 场景中进一步提供了构造 TCP 层应用协议数据的能力。</p>
+<p>因此 SSRF 真正值得掌握的并不是记住几个 Payload，而是理解：</p>
+<blockquote>
+<p><strong>服务端请求是如何从一个 URL 最终变成一次真实网络连接的。</strong></p>
+</blockquote>
+<p>当这条链路理解清楚之后，再去分析 HTTP、Gopher、Redis、URL Parser、302 跳转以及各种绕过技巧，就会容易很多。</p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://levi-5002.github.io">levi2005</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://levi-5002.github.io/2026/09/11/SSRF%E6%BC%8F%E6%B4%9E/">https://levi-5002.github.io/2026/09/11/SSRF%E6%BC%8F%E6%B4%9E/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://levi-5002.github.io" target="_blank">levi2005's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/CTF/">CTF</a><a class="post-meta__tags" href="/tags/%E6%B8%97%E9%80%8F/">渗透</a><a class="post-meta__tags" href="/tags/WEB/">WEB</a></div><div class="post-share"><div class="social-share" data-image="/img/stcs/stcs-ssrf-cover.jpg" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width" href="/2026/09/10/%E6%96%87%E4%BB%B6%E5%8C%85%E5%90%AB%E6%BC%8F%E6%B4%9E/" title="文件包含漏洞"><img class="cover" src="/img/stcs/stcs-wjbh-cover.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">文件包含漏洞</div></div><div class="info-2"><div class="info-item-1">PHP 文件包含漏洞详解：从原理、LFI&#x2F;RFI 到伪协议与包含利用 本文用于 Web 安全学习、CTF 靶场以及授权渗透测试。请勿在未授权的网站或服务器上进行漏洞测试。  文件包含漏洞是 PHP Web 安全中非常经典的一类漏洞。它的核心问题并不复杂：程序允许用户影响“服务器要加载哪个文件”，但又没有对这个文件路径进行严格限制。 一个普通的文件读取问题可能只能让攻击者看到文件内容，而文件包含的危险之处在于：PHP 的 include、require 等函数在加载文件之后，还可能按照 PHP 代码进行解析。 因此，文件包含漏洞往往不仅能够造成敏感文件泄露，在满足一定条件时还可能进一步演变为代码执行。  文件包含漏洞是怎么产生的在实际开发中，为了减少重复代码，程序员通常会把公共代码拆分到独立文件中。 例如： 12345&lt;?phpinclude(&quot;header.php&quot;);include(&quot;config.php&quot;);include(&quot;footer.php&quot;);?&gt;  这种方式本身没有问题。 随着业务变复...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2026/09/05/%E6%96%87%E4%BB%B6%E4%B8%8A%E4%BC%A0%E6%BC%8F%E6%B4%9E/" title="文件上传漏洞"><img class="cover" src="/img/stcs/stcs-wjsc-cover.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-05</div><div class="info-item-2">文件上传漏洞</div></div><div class="info-2"><div class="info-item-1">文件上传漏洞：从原理到实战一、什么是文件上传漏洞文件上传功能本身并不是漏洞。头像、附件、图片、压缩包、文档上传都是非常常见的业务功能。 真正的文件上传漏洞（File Upload Vulnerability），通常指服务端对用户上传文件的文件名、扩展名、MIME、文件内容、保存路径、服务器解析行为或后续处理流程缺乏有效限制，导致攻击者能够让服务器保存本不应该保存的文件，甚至让上传内容被 Web 服务器或脚本解释器执行。 最严重的情况是： 1234567891011用户可控文件    ↓上传成功    ↓落地到 Web 可访问目录    ↓服务器把它当成 PHP/JSP/ASP 等脚本解析    ↓攻击者控制脚本执行逻辑    ↓远程代码执行（RCE）  但要特别注意：“上传成功”不等于“漏洞利用成功”，更不等于“已经获得代码执行”。 例如，一个带 PHP 代码的 1.jpg 能够成功上传，只能证明服务器允许这个文件存在。若 Web 服务器仍然把它当普通 JPEG 返回，那么 PHP 代码不会自动执行。 因此，文件上传漏洞应当拆成几个不同层次来看。 1.1 文件上传漏洞常见于哪些业...</div></div></div></a><a class="pagination-related" href="/2026/09/10/%E6%96%87%E4%BB%B6%E5%8C%85%E5%90%AB%E6%BC%8F%E6%B4%9E/" title="文件包含漏洞"><img class="cover" src="/img/stcs/stcs-wjbh-cover.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-10</div><div class="info-item-2">文件包含漏洞</div></div><div class="info-2"><div class="info-item-1">PHP 文件包含漏洞详解：从原理、LFI&#x2F;RFI 到伪协议与包含利用 本文用于 Web 安全学习、CTF 靶场以及授权渗透测试。请勿在未授权的网站或服务器上进行漏洞测试。  文件包含漏洞是 PHP Web 安全中非常经典的一类漏洞。它的核心问题并不复杂：程序允许用户影响“服务器要加载哪个文件”，但又没有对这个文件路径进行严格限制。 一个普通的文件读取问题可能只能让攻击者看到文件内容，而文件包含的危险之处在于：PHP 的 include、require 等函数在加载文件之后，还可能按照 PHP 代码进行解析。 因此，文件包含漏洞往往不仅能够造成敏感文件泄露，在满足一定条件时还可能进一步演变为代码执行。  文件包含漏洞是怎么产生的在实际开发中，为了减少重复代码，程序员通常会把公共代码拆分到独立文件中。 例如： 12345&lt;?phpinclude(&quot;header.php&quot;);include(&quot;config.php&quot;);include(&quot;footer.php&quot;);?&gt;  这种方式本身没有问题。 随着业务变复...</div></div></div></a><a class="pagination-related" href="/2026/09/10/CSRF%E6%BC%8F%E6%B4%9E/" title="CSRF漏洞"><img class="cover" src="/img/stcs/stcs-csrf-cover.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-10</div><div class="info-item-2">CSRF漏洞</div></div><div class="info-2"><div class="info-item-1">CSRF 跨站请求伪造：原理、利用、检测与防御CSRF，全称 Cross-Site Request Forgery，中文通常称为 跨站请求伪造。 它是一类典型的 Web 安全漏洞：攻击者并不一定需要窃取用户账号或 Cookie，而是利用用户已经登录目标网站的身份状态，让受害者的浏览器在用户不知情的情况下向目标网站发送攻击者提前构造好的请求。 理解 CSRF，可以先记住一句话：  CSRF 不是偷走用户的身份，而是借用用户已经存在的身份。   一、CSRF 的核心原理理解 CSRF，首先要理解 Web 网站是如何维持登录状态的。 用户登录网站后，服务器通常会通过 Session、Cookie 或其他身份凭证记录用户身份。 例如用户登录成功后，服务器返回： 1Set-Cookie: SESSIONID=ABC123  之后浏览器访问网站时，会自动携带： 123GET /user/profile HTTP/1.1Host: target.exampleCookie: SESSIONID=ABC123  服务器看到： 1SESSIONID=ABC123  就能够判断： 1这是一个已经登录...</div></div></div></a><a class="pagination-related" href="/2026/09/05/%E4%B8%AA%E4%BA%BAkali%E5%B7%A5%E4%BD%9C%E7%AB%99%E9%85%8D%E7%BD%AE/" title="个人kali工作站配置"><img class="cover" src="/img/kali/kali-cover.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-09-05</div><div class="info-item-2">个人kali工作站配置</div></div><div class="info-2"><div class="info-item-1">个人Kali Linux 长期开发与安全工作站配置指南 目标：把 Kali 从“临时渗透系统”整理成一台可以长期用于开发、逆向、CTF、渗透测试和安全研究的工作站。 本文重点不是“把所有工具都装上”，而是解决更重要的问题：  软件应该由谁管理？ 软件本体应该放在哪里？ 为什么终端能直接调用某个命令？ Python &#x2F; Go &#x2F; Rust &#x2F; Node &#x2F; Java 如何避免互相污染？ Docker 应该怎么装、怎么维护？ GUI 软件、应用菜单和 Thunar 右键菜单如何统一？ 以后如何更新和卸载，而不是越用越乱？    一、先确定最终原则：一类软件只交给一个管理者Kali 用久以后最容易出现的问题不是“软件不够多”，而是：  同一个语言装了两三套； PATH 里塞了几十个目录； Python 工具共用一个环境； GUI 软件不知道装到了哪里； Docker 又有 docker.io 又有 Docker CE； GitHub 工具源码和扫描结果混在一起； 软件能运行，但已经不知道是谁安装的、以后该怎么更新。  因此我的最终规则是： 123...</div></div></div></a><a class="pagination-related" href="/2026/08/23/2026%E8%BD%AF%E4%BB%B6%E5%AE%89%E5%85%A8%E8%B5%9B%E9%80%86%E5%90%91wp/" title="2026软件安全赛逆向wp"><img class="cover" src="/img/rjaq2026/rjaq2026-cover.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-08-23</div><div class="info-item-2">2026软件安全赛逆向wp</div></div><div class="info-2"><div class="info-item-1">2026软件系统安全赛初赛&amp;决赛逆向wp1.VM虚拟机逆向die查壳发现什么都没有加   通过ida打开发现有一个.vmp节区，推测为虚拟机   首先还原虚拟机结构 还原虚拟机结构对于 一个虚拟机结构的还原仅凭一部分代码是没办法确认的，需要前后多次对比观察才能得出结论 进入main函数中，从第40行到第61行都是c++输入函数的底层实现，可以忽略不记   由于ida对于c++部分结构体的还原不到位，这里出现了奇怪的现象，一个从来没有赋值过的v16参与了一个长度判断，这是由于原本的c++语言中有一个std::string结构，简化后如下： 123456struct StringLike&#123;    char *ptr;        // +0x00 字符串内容地址    size_t len;       // +0x08 字符串长度    char sso[16];     // +0x10 小字符串缓冲区&#125;;  我们对比这个v15的部分   同样的栈上连着三个变量，v15作为字符串内容地址，v16作为输入长度，v17作为这里的sso输入缓冲区，而在这之...</div></div></div></a><a class="pagination-related" href="/2026/08/26/%E6%B8%97%E9%80%8F%E4%BF%A1%E6%81%AF%E6%94%B6%E9%9B%86/" title="渗透信息收集"><img class="cover" src="/img/stcs/stcs-xxsj-cover.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-08-26</div><div class="info-item-2">渗透信息收集</div></div><div class="info-2"><div class="info-item-1">渗透测试信息收集：从企业资产发现到 ARL 自动化资产梳理 授权说明： 本文仅用于合法授权的渗透测试、安全评估、SRC&#x2F;漏洞赏金规则允许的目标以及自建实验环境。任何主动扫描、目录枚举、漏洞探测或验证行为，都应先确认目标范围、请求强度和授权边界。  信息收集的目标不是“扫描得越多越好”，而是回答三个问题：资产是谁的、资产暴露了什么、这些暴露面之间有什么关系。 信息收集最容易出现的问题，是把 WHOIS、OneForAll、Wappalyzer、Nmap、FOFA 等工具分别记成一堆命令，却不知道什么时候应该使用它们。 实际上，它们属于同一条连续的资产发现链路： 12345678910111213141516171819202122232425企业名称   ↓企业 / 品牌 / 子公司 / App / 小程序   ↓确认可能关联的根域名   ↓RDAP / WHOIS / ICP / DNS   ↓子域名   ↓DNS / IP / CDN / ASN   ↓Web 站点   ↓Web 指纹 / WAF / 框架 / 组件   ↓目录 / API / JS / 源码泄露  ...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/levi.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">levi2005</div><div class="author-info-description">一个神人的博客</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">8</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">17</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">3</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/levi-5002"><i class="fab fa-github"></i><span>Follow Me</span></a></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">For the emperor</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#SSRF-%E6%BC%8F%E6%B4%9E%E4%BB%8E%E5%8E%9F%E7%90%86%E5%88%B0%E5%88%A9%E7%94%A8%EF%BC%9AURL%E3%80%81curl%E3%80%81Gopher-%E4%B8%8E%E5%86%85%E7%BD%91%E6%9C%8D%E5%8A%A1%E5%AE%89%E5%85%A8"><span class="toc-number">1.</span> <span class="toc-text">SSRF 漏洞从原理到利用：URL、curl、Gopher 与内网服务安全</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#1-SSRF-%E5%88%B0%E5%BA%95%E6%98%AF%E4%BB%80%E4%B9%88"><span class="toc-number">1.1.</span> <span class="toc-text">1. SSRF 到底是什么</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#2-SSRF-%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BC%9A%E4%BA%A7%E7%94%9F"><span class="toc-number">1.2.</span> <span class="toc-text">2. SSRF 为什么会产生</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#3-%E5%93%AA%E4%BA%9B%E5%9C%B0%E6%96%B9%E5%AE%B9%E6%98%93%E5%87%BA%E7%8E%B0-SSRF"><span class="toc-number">1.3.</span> <span class="toc-text">3. 哪些地方容易出现 SSRF</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%BF%9C%E7%A8%8B%E5%9B%BE%E7%89%87%E6%88%96%E6%96%87%E4%BB%B6%E8%8E%B7%E5%8F%96"><span class="toc-number">1.3.1.</span> <span class="toc-text">远程图片或文件获取</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#URL-%E9%A2%84%E8%A7%88%E5%8A%9F%E8%83%BD"><span class="toc-number">1.3.2.</span> <span class="toc-text">URL 预览功能</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Webhook-%E5%92%8C%E5%9B%9E%E8%B0%83%E5%9C%B0%E5%9D%80"><span class="toc-number">1.3.3.</span> <span class="toc-text">Webhook 和回调地址</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#RSS%E3%80%81%E4%BB%A3%E7%90%86%E5%92%8C%E6%95%B0%E6%8D%AE%E5%AF%BC%E5%85%A5"><span class="toc-number">1.3.4.</span> <span class="toc-text">RSS、代理和数据导入</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%96%87%E4%BB%B6%E5%92%8C%E5%AA%92%E4%BD%93%E5%A4%84%E7%90%86%E5%8A%9F%E8%83%BD"><span class="toc-number">1.3.5.</span> <span class="toc-text">文件和媒体处理功能</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#4-URL%E3%80%81curl-%E5%92%8C-SSRF-%E6%98%AF%E4%BB%80%E4%B9%88%E5%85%B3%E7%B3%BB"><span class="toc-number">1.4.</span> <span class="toc-text">4. URL、curl 和 SSRF 是什么关系</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#URL-%E6%98%AF%E2%80%9C%E5%9C%B0%E5%9D%80%E2%80%9D"><span class="toc-number">1.4.1.</span> <span class="toc-text">URL 是“地址”</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#curl-%E6%98%AF%E2%80%9C%E5%8F%91%E9%80%81%E8%AF%B7%E6%B1%82%E7%9A%84%E5%B7%A5%E5%85%B7%E2%80%9D"><span class="toc-number">1.4.2.</span> <span class="toc-text">curl 是“发送请求的工具”</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#5-SSRF-%E4%B8%BA%E4%BB%80%E4%B9%88%E7%BB%8F%E5%B8%B8%E5%92%8C-Gopher%E3%80%81Redis-%E4%B8%80%E8%B5%B7%E5%87%BA%E7%8E%B0"><span class="toc-number">1.5.</span> <span class="toc-text">5. SSRF 为什么经常和 Gopher、Redis 一起出现</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#Gopher-%E7%9A%84%E5%85%B3%E9%94%AE%E4%BB%B7%E5%80%BC"><span class="toc-number">1.5.1.</span> <span class="toc-text">Gopher 的关键价值</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Redis-%E4%B8%BA%E4%BB%80%E4%B9%88%E8%83%BD%E5%A4%9F%E5%92%8C-SSRF-%E8%81%94%E7%B3%BB%E8%B5%B7%E6%9D%A5"><span class="toc-number">1.5.2.</span> <span class="toc-text">Redis 为什么能够和 SSRF 联系起来</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#6-SSRF-%E7%9A%84%E5%B8%B8%E8%A7%81%E5%88%A9%E7%94%A8%E4%B8%8E%E7%BB%95%E8%BF%87%E6%80%9D%E8%B7%AF"><span class="toc-number">1.6.</span> <span class="toc-text">6. SSRF 的常见利用与绕过思路</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#IP-%E5%9C%B0%E5%9D%80%E7%9A%84%E4%B8%8D%E5%90%8C%E8%A1%A8%E7%A4%BA%E5%BD%A2%E5%BC%8F"><span class="toc-number">1.6.1.</span> <span class="toc-text">IP 地址的不同表示形式</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#localhost-%E4%B8%8E%E7%89%B9%E6%AE%8A%E5%9C%B0%E5%9D%80"><span class="toc-number">1.6.2.</span> <span class="toc-text">localhost 与特殊地址</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#HTTP-302-%E8%B7%B3%E8%BD%AC"><span class="toc-number">1.6.3.</span> <span class="toc-text">HTTP 302 跳转</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%8E-URL-UserInfo"><span class="toc-number">1.6.4.</span> <span class="toc-text">@ 与 URL UserInfo</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#URL-Parser-%E5%B7%AE%E5%BC%82"><span class="toc-number">1.6.5.</span> <span class="toc-text">URL Parser 差异</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#7-SSRF-%E5%BA%94%E8%AF%A5%E5%A6%82%E4%BD%95%E9%98%B2%E5%BE%A1"><span class="toc-number">1.7.</span> <span class="toc-text">7. SSRF 应该如何防御</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BC%98%E5%85%88%E4%BD%BF%E7%94%A8%E7%99%BD%E5%90%8D%E5%8D%95"><span class="toc-number">1.7.1.</span> <span class="toc-text">优先使用白名单</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%99%90%E5%88%B6-URL-Scheme"><span class="toc-number">1.7.2.</span> <span class="toc-text">限制 URL Scheme</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%A7%A3%E6%9E%90%E5%B9%B6%E6%A3%80%E6%9F%A5%E7%9C%9F%E5%AE%9E-IP"><span class="toc-number">1.7.3.</span> <span class="toc-text">解析并检查真实 IP</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%98%B2%E6%AD%A2-DNS-Rebinding"><span class="toc-number">1.7.4.</span> <span class="toc-text">防止 DNS Rebinding</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%B0%A8%E6%85%8E%E5%A4%84%E7%90%86-Redirect"><span class="toc-number">1.7.5.</span> <span class="toc-text">谨慎处理 Redirect</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%86%85%E7%BD%91%E6%9C%8D%E5%8A%A1%E8%87%AA%E8%BA%AB%E4%B9%9F%E5%BF%85%E9%A1%BB%E9%89%B4%E6%9D%83"><span class="toc-number">1.7.6.</span> <span class="toc-text">内网服务自身也必须鉴权</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%8E%E7%BD%91%E7%BB%9C%E5%B1%82%E9%99%90%E5%88%B6%E6%9C%8D%E5%8A%A1%E5%99%A8%E5%87%BA%E7%AB%99%E8%AE%BF%E9%97%AE"><span class="toc-number">1.7.7.</span> <span class="toc-text">从网络层限制服务器出站访问</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">1.8.</span> <span class="toc-text">总结</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/2026/09/11/SSRF%E6%BC%8F%E6%B4%9E/" title="SSRF漏洞"><img src="/img/stcs/stcs-ssrf-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="SSRF漏洞"/></a><div class="content"><a class="title" href="/2026/09/11/SSRF%E6%BC%8F%E6%B4%9E/" title="SSRF漏洞">SSRF漏洞</a><time datetime="2026-09-11T13:51:51.000Z" title="发表于 2026-09-11 21:51:51">2026-09-11</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/09/10/%E6%96%87%E4%BB%B6%E5%8C%85%E5%90%AB%E6%BC%8F%E6%B4%9E/" title="文件包含漏洞"><img src="/img/stcs/stcs-wjbh-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="文件包含漏洞"/></a><div class="content"><a class="title" href="/2026/09/10/%E6%96%87%E4%BB%B6%E5%8C%85%E5%90%AB%E6%BC%8F%E6%B4%9E/" title="文件包含漏洞">文件包含漏洞</a><time datetime="2026-09-10T10:44:06.000Z" title="发表于 2026-09-10 18:44:06">2026-09-10</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/09/10/CSRF%E6%BC%8F%E6%B4%9E/" title="CSRF漏洞"><img src="/img/stcs/stcs-csrf-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CSRF漏洞"/></a><div class="content"><a class="title" href="/2026/09/10/CSRF%E6%BC%8F%E6%B4%9E/" title="CSRF漏洞">CSRF漏洞</a><time datetime="2026-09-10T07:18:16.000Z" title="发表于 2026-09-10 15:18:16">2026-09-10</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/09/05/%E4%B8%AA%E4%BA%BAkali%E5%B7%A5%E4%BD%9C%E7%AB%99%E9%85%8D%E7%BD%AE/" title="个人kali工作站配置"><img src="/img/kali/kali-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="个人kali工作站配置"/></a><div class="content"><a class="title" href="/2026/09/05/%E4%B8%AA%E4%BA%BAkali%E5%B7%A5%E4%BD%9C%E7%AB%99%E9%85%8D%E7%BD%AE/" title="个人kali工作站配置">个人kali工作站配置</a><time datetime="2026-09-05T10:43:25.000Z" title="发表于 2026-09-05 18:43:25">2026-09-05</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/09/05/%E6%96%87%E4%BB%B6%E4%B8%8A%E4%BC%A0%E6%BC%8F%E6%B4%9E/" title="文件上传漏洞"><img src="/img/stcs/stcs-wjsc-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="文件上传漏洞"/></a><div class="content"><a class="title" href="/2026/09/05/%E6%96%87%E4%BB%B6%E4%B8%8A%E4%BC%A0%E6%BC%8F%E6%B4%9E/" title="文件上传漏洞">文件上传漏洞</a><time datetime="2026-09-05T09:01:27.000Z" title="发表于 2026-09-05 17:01:27">2026-09-05</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2025 - 2026 By levi2005</span><span class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 8.1.2</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.5.4</a></span></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js?v=5.5.4"></script><script src="/js/main.js?v=5.5.4"></script><div class="js-pjax"></div><script src="/music/config.js"></script><script src="/js/home-music.js"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js" defer="defer"></script><script>document.addEventListener('DOMContentLoaded', () => {
+  const pjaxSelectors = ["head > title","#config-diff","#body-wrap","#rightside-config-hide","#rightside-config-show",".js-pjax"]
+
+  window.pjax = new Pjax({
+    elements: 'a:not([target="_blank"])',
+    selectors: pjaxSelectors,
+    cacheBust: false,
+    analytics: false,
+    scrollRestoration: false
+  })
+
+  const triggerPjaxFn = (val) => {
+    if (!val) return
+    Object.values(val).forEach(fn => {
+      try {
+        fn()
+      } catch (err) {
+        console.debug('Pjax callback failed:', err)
+      }
+    })
+  }
+
+  document.addEventListener('pjax:send', () => {
+    // removeEventListener
+    btf.removeGlobalFnEvent('pjaxSendOnce')
+    btf.removeGlobalFnEvent('themeChange')
+
+    // reset readmode
+    const $bodyClassList = document.body.classList
+    if ($bodyClassList.contains('read-mode')) $bodyClassList.remove('read-mode')
+
+    triggerPjaxFn(window.globalFn.pjaxSend)
+  })
+
+  document.addEventListener('pjax:complete', () => {
+    btf.removeGlobalFnEvent('pjaxCompleteOnce')
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+      const newScript = document.createElement('script')
+      const content = item.text || item.textContent || item.innerHTML || ""
+      Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+      newScript.appendChild(document.createTextNode(content))
+      item.parentNode.replaceChild(newScript, item)
+    })
+
+    triggerPjaxFn(window.globalFn.pjaxComplete)
+  })
+
+  document.addEventListener('pjax:error', e => {
+    if (e.request.status === 404) {
+      false
+        ? pjax.loadUrl('/404.html')
+        : window.location.href = e.request.responseURL
+    }
+  })
+})</script><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索标题、正文、标签或日期" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js?v=5.5.4"></script></div></div></body></html>
