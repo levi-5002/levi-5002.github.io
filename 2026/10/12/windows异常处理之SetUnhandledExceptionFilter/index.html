@@ -1,0 +1,1370 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>windows异常处理之SetUnhandledExceptionFilter | levi2005's Blog</title><meta name="author" content="levi2005"><meta name="copyright" content="levi2005"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="windows异常处理之SetUnhandledExceptionFilter">
+<meta property="og:type" content="article">
+<meta property="og:title" content="windows异常处理之SetUnhandledExceptionFilter">
+<meta property="og:url" content="https://levi-5002.github.io/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/index.html">
+<meta property="og:site_name" content="levi2005&#39;s Blog">
+<meta property="og:description" content="windows异常处理之SetUnhandledExceptionFilter">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://levi-5002.github.io/img/debug/setunhandled-cover.jpg">
+<meta property="article:published_time" content="2026-10-12T11:17:14.000Z">
+<meta property="article:modified_time" content="2026-10-12T11:21:59.722Z">
+<meta property="article:author" content="levi2005">
+<meta property="article:tag" content="windows">
+<meta property="article:tag" content="x64dbg">
+<meta property="article:tag" content="反调试">
+<meta property="article:tag" content="异常">
+<meta property="article:tag" content="调试">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://levi-5002.github.io/img/debug/setunhandled-cover.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "windows异常处理之SetUnhandledExceptionFilter",
+  "url": "https://levi-5002.github.io/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/",
+  "image": "https://levi-5002.github.io/img/debug/setunhandled-cover.jpg",
+  "datePublished": "2026-10-12T11:17:14.000Z",
+  "dateModified": "2026-10-12T11:21:59.722Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "levi2005",
+      "url": "https://levi-5002.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/favicon.ico"><link rel="canonical" href="https://levi-5002.github.io/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/index.html"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css?v=5.5.4"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.1.0/css/all.min.css"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!true && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":false,"pagination":{"enable":true,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'null',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid@4.13.0/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'windows异常处理之SetUnhandledExceptionFilter',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" href="/css/home-music.css"><link rel="stylesheet" href="/css/columns.css"><meta name="generator" content="Hexo 8.1.2"></head><body><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/debug/setunhandled-top.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">levi2005's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">windows异常处理之SetUnhandledExceptionFilter</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"></div></nav><div id="post-info"><h1 class="post-title">windows异常处理之SetUnhandledExceptionFilter</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-10-12T11:17:14.000Z" title="发表于 2026-10-12 19:17:14">2026-10-12</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-10-12T11:21:59.722Z" title="更新于 2026-10-12 19:21:59">2026-10-12</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%B0%83%E8%AF%95/">调试</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%B0%83%E8%AF%95/windows/">windows</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="Windows-异常处理机制详解：SetUnhandledExceptionFilter-从内核异常分发到程序终止与x64dbg手动实验"><a href="#Windows-异常处理机制详解：SetUnhandledExceptionFilter-从内核异常分发到程序终止与x64dbg手动实验" class="headerlink" title="Windows 异常处理机制详解：SetUnhandledExceptionFilter 从内核异常分发到程序终止与x64dbg手动实验"></a>Windows 异常处理机制详解：SetUnhandledExceptionFilter 从内核异常分发到程序终止与x64dbg手动实验</h1><h2 id="一、Windows-异常处理机制与核心原理"><a href="#一、Windows-异常处理机制与核心原理" class="headerlink" title="一、Windows 异常处理机制与核心原理"></a>一、Windows 异常处理机制与核心原理</h2><h3 id="1-异常与程序崩溃"><a href="#1-异常与程序崩溃" class="headerlink" title="1. 异常与程序崩溃"></a>1. 异常与程序崩溃</h3><p>异常（Exception）是程序执行过程中需要特殊处理的事件，既可以由 CPU 硬件产生，也可以由软件主动产生。</p>
+<p>例如：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">mov eax, 0</span><br><span class="line">mov dword ptr [eax], 0</span><br></pre></td></tr></table></figure>
+
+<p>由于 <code>EAX=0</code>，第二条指令尝试向无效地址写入数据，通常触发访问违规异常 <code>0xC0000005</code>。</p>
+<p>但是，<strong>异常发生并不代表进程立即终止</strong>。</p>
+<p>Windows 可以保存故障线程的寄存器状态，寻找合适的异常处理程序。如果异常得到处理，线程可能恢复执行、重新执行故障指令，或者转移到异常处理代码。</p>
+<p>需要特别区分：</p>
+<table>
+<thead>
+<tr>
+<th>概念</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Exception</td>
+<td>程序或 CPU 产生了异常条件</td>
+</tr>
+<tr>
+<td>Handled Exception</td>
+<td>异常已经由某个处理程序接管</td>
+</tr>
+<tr>
+<td>Unhandled Exception</td>
+<td>异常没有被相应处理机制解决</td>
+</tr>
+<tr>
+<td>Crash</td>
+<td>程序因无法恢复的错误或致命条件而终止</td>
+</tr>
+</tbody></table>
+<p>如果异常发生后，问题没有解决，却直接恢复相同的指令，通常还会再次产生异常。</p>
+<p>但程序不一定非要修复原始指令，也可以在异常处理后跳转至其他合理的执行位置。</p>
+<h3 id="2-异常从-CPU-到用户态的分发过程"><a href="#2-异常从-CPU-到用户态的分发过程" class="headerlink" title="2. 异常从 CPU 到用户态的分发过程"></a>2. 异常从 CPU 到用户态的分发过程</h3><p>Windows 普通应用程序主要运行在 Ring 3（用户模式），内核代码运行在 Ring 0（内核模式）。</p>
+<p>当 CPU 执行一条发生硬件异常的指令时，例如无效内存访问，CPU 会通过异常向量转移到对应的内核入口。</p>
+<p>以访问违规为例，可以概括为：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line">CPU 执行指令 / 软件主动抛出异常</span><br><span class="line">           │</span><br><span class="line">           ▼</span><br><span class="line">内核异常处理（硬件异常可能先尝试正常缺页恢复）</span><br><span class="line">           │ 未能直接解决</span><br><span class="line">           ▼</span><br><span class="line">调试器 First Chance（仅存在调试器时）</span><br><span class="line">           ├── DBG_CONTINUE → 调试器表示已处理，尝试继续执行</span><br><span class="line">           └── DBG_EXCEPTION_NOT_HANDLED → 交给应用程序</span><br><span class="line">                                               │</span><br><span class="line">                                               ▼</span><br><span class="line">                               ntdll!KiUserExceptionDispatcher</span><br><span class="line">                                               │</span><br><span class="line">                                               ▼</span><br><span class="line">                                  ntdll!RtlDispatchException</span><br><span class="line">                                      │</span><br><span class="line">                                      ├── VEH：向量化异常处理器</span><br><span class="line">                                      │</span><br><span class="line">                                      └── SEH：按栈帧查找语言处理器</span><br><span class="line">                                           │</span><br><span class="line">                                           ├── 当前/外层用户代码的处理器</span><br><span class="line">                                           │</span><br><span class="line">                                           └── 线程入口的系统异常处理范围（常见实现）</span><br><span class="line">                                                    │</span><br><span class="line">                                                    ▼</span><br><span class="line">                                           UnhandledExceptionFilter</span><br><span class="line">                                                    │</span><br><span class="line">                                                    └── 根据条件调用用户设置的顶层筛选器</span><br><span class="line"></span><br><span class="line">处理结果：</span><br><span class="line">  · 继续执行：恢复故障时或经修改的 CONTEXT</span><br><span class="line">  · 选择处理块：按需实际展开栈，进入匹配的 __except</span><br><span class="line">  · 仍未处理：调试器 Second Chance（若存在）/ 系统终止及可能的 WER</span><br></pre></td></tr></table></figure>
+
+<p>上图是概念性流程图：<code>UnhandledExceptionFilter</code> 在本次实验中是通过线程入口的系统 SEH 过滤表达式到达的；不是 <code>RtlDispatchException</code> 每次都直接调用它。实际调用栈、异常分发细节依赖系统实现。</p>
+<p>其中有几个关键函数。</p>
+<p><strong>1. KiDispatchException</strong></p>
+<p>这是 Windows 内核异常处理实现中常见的内部函数名称之一。它参与异常分发、调试器通知以及决定是否需要向用户态分发等过程。</p>
+<p>它属于系统内部实现，不是开发普通 Win32 程序时应直接调用的公开 API。</p>
+<p><strong>2. KiUserExceptionDispatcher</strong></p>
+<p>这是 <code>ntdll.dll</code> 中典型的用户态异常分发入口。</p>
+<p>当 Windows 决定将异常交给用户模式处理时，可以使用户线程进入相应的异常分发逻辑。</p>
+<p>它会使用异常记录和保存的线程上下文继续分发。</p>
+<p><strong>3. RtlDispatchException</strong></p>
+<p>它负责在用户态分发向量化异常处理器（VEH），并沿当前线程的栈帧搜索与语言有关的结构化异常处理器（SEH）。它本身不会无条件直接调用 <code>SetUnhandledExceptionFilter</code> 所设置的函数：本次实验中是搜索进入系统线程启动函数的异常过滤表达式，才进一步进入 <code>UnhandledExceptionFilter</code>。</p>
+<p>如果异常被处理，Windows 可以根据处理结果恢复执行。</p>
+<p>如果当前搜索没有找到处理办法，异常会继续进入未处理异常路径；存在调试器时还可能进入 Second Chance。</p>
+<p><strong>4. NtContinue &#x2F; NtRaiseException</strong></p>
+<p>在典型的 Windows 异常实现中，恢复线程上下文和继续报告未处理异常会涉及这些底层接口。</p>
+<p>要注意：恢复执行不等于简单执行当前回调的下一条汇编指令。操作系统需要恢复原故障线程的上下文。</p>
+<h4 id="调试器的-First-Chance-与-Second-Chance"><a href="#调试器的-First-Chance-与-Second-Chance" class="headerlink" title="调试器的 First Chance 与 Second Chance"></a>调试器的 First Chance 与 Second Chance</h4><p>Windows 在调试状态下，会先通过调试事件通知调试器。这里的“异常通知”并不等同于“应用代码一定会收到异常”：调试器可以选择将异常吞掉，也可以交还被调试程序处理。</p>
+<ul>
+<li><strong>First Chance</strong>：在应用程序自己的异常处理程序运行前，先给调试器处理机会。</li>
+<li><strong>Second Chance</strong>：异常没有被程序处理时，调试器可以获得最后一次处理机会。</li>
+</ul>
+<p>调试器可以通过 <code>ContinueDebugEvent</code> 提交：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">DBG_CONTINUE</span><br><span class="line">DBG_EXCEPTION_NOT_HANDLED</span><br></pre></td></tr></table></figure>
+
+<p>前者表示调试器已经处理该异常，后者表示交由后续异常机制继续处理。</p>
+<p>因此，在 x32dbg 或 x64dbg 中看见访问违规提示，不能直接认定进程已经崩溃。</p>
+<h3 id="3-VEH、SEH-与顶层未处理异常筛选器"><a href="#3-VEH、SEH-与顶层未处理异常筛选器" class="headerlink" title="3. VEH、SEH 与顶层未处理异常筛选器"></a>3. VEH、SEH 与顶层未处理异常筛选器</h3><p>Windows 的异常处理不是只有一个回调列表。</p>
+<table>
+<thead>
+<tr>
+<th>机制</th>
+<th>注册方式</th>
+<th>核心特点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>SEH</td>
+<td><code>__try / __except</code></td>
+<td>与当前线程的栈帧及异常处理范围相关</td>
+</tr>
+<tr>
+<td>VEH</td>
+<td><code>AddVectoredExceptionHandler</code></td>
+<td>进程范围内注册多个向量化异常处理函数</td>
+</tr>
+<tr>
+<td>UEF</td>
+<td><code>SetUnhandledExceptionFilter</code></td>
+<td>设置进程当前的顶层未处理异常筛选器</td>
+</tr>
+</tbody></table>
+<p>传统 Windows x86 SEH 可以通过 <code>FS:[0]</code> 查找异常注册链表头；而在 x64 中，主要通过 <code>.pdata</code>、<code>.xdata</code> 及展开信息查找异常处理程序。</p>
+<p>不过：</p>
+<p><strong><code>SetUnhandledExceptionFilter</code> 并不是向 x86 的 <code>FS:[0]</code> 异常链表中加入节点。</strong></p>
+<p>它设置的是进程范围内的顶层未处理异常筛选回调。</p>
+<h3 id="4-Windows-x64-的表驱动-SEH：为什么需要-pdata-与-xdata？"><a href="#4-Windows-x64-的表驱动-SEH：为什么需要-pdata-与-xdata？" class="headerlink" title="4. Windows x64 的表驱动 SEH：为什么需要 .pdata 与 .xdata？"></a>4. Windows x64 的表驱动 SEH：为什么需要 <code>.pdata</code> 与 <code>.xdata</code>？</h3><h4 id="4-1-x86-链表式-SEH-与-x64-表驱动-SEH-的区别"><a href="#4-1-x86-链表式-SEH-与-x64-表驱动-SEH-的区别" class="headerlink" title="4.1 x86 链表式 SEH 与 x64 表驱动 SEH 的区别"></a>4.1 x86 链表式 SEH 与 x64 表驱动 SEH 的区别</h4><p>在传统的 32 位 Windows 用户态代码中，可以从线程相关的 <code>FS:[0]</code> 入口找到 SEH 注册记录链。每个活动记录通常关联相应的栈帧和异常处理器。</p>
+<p>但在 <strong>Windows x64</strong> 中，正常的栈帧式 SEH 主要依赖 PE 映像中的异常目录和展开元数据，而不是沿着 <code>FS:[0]</code> 遍历链表。调试时看到 <code>GS:[60h]</code> 获取 PEB，也不代表正在读取 x86 风格的 SEH 链表：PEB 与栈帧的异常展开元数据是两件不同的事。</p>
+<table>
+<thead>
+<tr>
+<th>对比项目</th>
+<th>x86（经典 Win32 SEH）</th>
+<th>x64（主流原生代码）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>搜索入口</td>
+<td>每线程的 SEH 注册链</td>
+<td>当前 <code>RIP</code>、函数表和展开信息</td>
+</tr>
+<tr>
+<td>注册信息</td>
+<td>栈上的异常注册记录</td>
+<td>映像函数表以及语言相关处理信息</td>
+</tr>
+<tr>
+<td>主要依赖</td>
+<td><code>FS:[0]</code> 等线程状态</td>
+<td><code>.pdata</code> &#x2F; <code>.xdata</code>、<code>RUNTIME_FUNCTION</code>、<code>UNWIND_INFO</code></td>
+</tr>
+<tr>
+<td>调用栈向外搜索</td>
+<td>链表中查找后继记录</td>
+<td>对保存的 <code>CONTEXT</code> 进行逐帧虚拟展开</td>
+</tr>
+<tr>
+<td>ASLR 影响</td>
+<td>处理器绝对地址可能变化</td>
+<td>函数表包含相对映像基址的 RVA，运行时加上映像基址</td>
+</tr>
+</tbody></table>
+<h4 id="4-2-pdata、RUNTIME-FUNCTION-和-xdata-的关系"><a href="#4-2-pdata、RUNTIME-FUNCTION-和-xdata-的关系" class="headerlink" title="4.2 .pdata、RUNTIME_FUNCTION 和 .xdata 的关系"></a>4.2 <code>.pdata</code>、<code>RUNTIME_FUNCTION</code> 和 <code>.xdata</code> 的关系</h4><p>对需要栈展开信息的 x64 函数，链接器通常在 <code>.pdata</code> 中生成 <code>RUNTIME_FUNCTION</code> 项。这些条目描述函数的起止范围，以及相应的展开信息位置；进一步指向 <code>.xdata</code> 中的 <code>UNWIND_INFO</code>。</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">当前 RIP</span><br><span class="line">   │</span><br><span class="line">   ▼</span><br><span class="line">RtlLookupFunctionEntry</span><br><span class="line">   │ 根据 RIP 找到覆盖它的 RUNTIME_FUNCTION</span><br><span class="line">   ▼</span><br><span class="line">.pdata：函数起始 RVA、函数结束 RVA、展开信息 RVA</span><br><span class="line">   │</span><br><span class="line">   ▼</span><br><span class="line">.xdata：UNWIND_INFO</span><br><span class="line">   ├── 序言中分配了多少栈空间</span><br><span class="line">   ├── 哪些非易失寄存器保存在哪里</span><br><span class="line">   ├── 有无帧寄存器</span><br><span class="line">   └── 是否存在语言异常处理器/终止处理器及附加数据</span><br></pre></td></tr></table></figure>
+
+<p><code>UNW_FLAG_EHANDLER</code> 表示有异常处理器可供异常搜索阶段检查；<code>UNW_FLAG_UHANDLER</code> 涉及栈展开时的终止&#x2F;清理处理。<strong>有可展开信息并不代表这个函数一定定义了 <code>__except</code>。</strong> 只有对应元数据指明了语言处理器，才有相应的处理器可调用。</p>
+<p>有些简单叶子函数没有独立的函数表项，可以按约定模拟一次返回地址恢复；动态生成的代码则可能需要通过运行时函数表注册 API 提供展开信息。因此，不能把“<code>.pdata</code> 没有该函数”直接等同于“这是恶意代码”。</p>
+<h4 id="4-3-RtlLookupFunctionEntry-与-RtlVirtualUnwind-各做什么？"><a href="#4-3-RtlLookupFunctionEntry-与-RtlVirtualUnwind-各做什么？" class="headerlink" title="4.3 RtlLookupFunctionEntry 与 RtlVirtualUnwind 各做什么？"></a>4.3 <code>RtlLookupFunctionEntry</code> 与 <code>RtlVirtualUnwind</code> 各做什么？</h4><table>
+<thead>
+<tr>
+<th>名称</th>
+<th>核心工作</th>
+<th>调试时应关注的输出</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>RtlLookupFunctionEntry</code></td>
+<td>根据当前控制地址定位对应的运行时函数表项</td>
+<td>映像基址、<code>RUNTIME_FUNCTION</code> 指针</td>
+</tr>
+<tr>
+<td><code>RtlVirtualUnwind</code>（实际实现中可能见到内部变体）</td>
+<td>利用展开元数据，推算调用者的 <code>RIP</code>、<code>RSP</code> 等上下文</td>
+<td>更新后的 <code>CONTEXT</code>、EstablisherFrame、语言处理器和处理器数据</td>
+</tr>
+<tr>
+<td><code>DISPATCHER_CONTEXT</code></td>
+<td>保存异常分发器正在检查的帧与相关状态</td>
+<td>ControlPc、函数表项、语言处理器、作用域数据</td>
+</tr>
+</tbody></table>
+<p>本实验跟踪中出现的 <code>RtlpxVirtualUnwind</code> 属于系统内部实现细节；理解它的功能时可以对照公开文档中的 <code>RtlVirtualUnwind</code>。内部函数名、寄存器和具体指令不能保证不同 Windows 版本完全一致。</p>
+<h3 id="5-从-RtlDispatchException-到-C-specific-handler：谁真正判断异常？"><a href="#5-从-RtlDispatchException-到-C-specific-handler：谁真正判断异常？" class="headerlink" title="5. 从 RtlDispatchException 到 __C_specific_handler：谁真正判断异常？"></a>5. 从 <code>RtlDispatchException</code> 到 <code>__C_specific_handler</code>：谁真正判断异常？</h3><p>理解 x64 SEH 时，必须把 <strong>异常分发器</strong>、<strong>语言异常处理器</strong> 和 <strong>过滤表达式</strong> 分开。</p>
+<table>
+<thead>
+<tr>
+<th>层次</th>
+<th>本次调试中的代表函数</th>
+<th>负责的事情</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>异常分发入口</td>
+<td><code>KiUserExceptionDispatcher</code></td>
+<td>接收用户态异常现场，发起搜索并安排后续路径</td>
+</tr>
+<tr>
+<td>异常搜索与调度</td>
+<td><code>RtlDispatchException</code></td>
+<td>检查 VEH，并逐个栈帧查找可调用的异常处理器</td>
+</tr>
+<tr>
+<td>处理器调用包装</td>
+<td><code>RtlpExecuteHandlerForException</code></td>
+<td>以异常分发要求的方式调用找到的语言处理器</td>
+</tr>
+<tr>
+<td>语言异常处理器</td>
+<td><code>__C_specific_handler</code></td>
+<td>解释当前函数的 C SEH 作用域表及过滤表达式</td>
+</tr>
+<tr>
+<td>SEH 过滤函数</td>
+<td>例如 <code>RtlUserThreadStart$filt$0</code></td>
+<td>计算 <code>__except</code> 过滤表达式的结果</td>
+</tr>
+<tr>
+<td>顶层未处理异常机制</td>
+<td><code>UnhandledExceptionFilter</code></td>
+<td>处理进入顶层的未处理异常，并在适用条件下调用应用设置的筛选器</td>
+</tr>
+<tr>
+<td>用户回调</td>
+<td><code>MyException</code></td>
+<td>读取异常现场并返回 <code>LONG</code> 筛选结果</td>
+</tr>
+</tbody></table>
+<p><code>RtlDispatchException</code> 搜索到某帧的 <code>UNW_FLAG_EHANDLER</code>，并不意味着已经找到了 <code>MyException</code>；它先找到的是该栈帧的语言处理器。例如，本次线程入口帧关联的是 <code>__C_specific_handler</code>。</p>
+<p>随后，<code>__C_specific_handler</code> 依据该函数的作用域信息判断：异常发生的控制地址是否处在受保护范围内、需要评估哪个过滤表达式、若选择处理应转到哪个处理块。它不是简单地把所有回调按注册顺序遍历一遍。</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">RtlDispatchException（沿栈帧搜索）</span><br><span class="line">   └── RtlpExecuteHandlerForException</span><br><span class="line">       └── __C_specific_handler（解释当前栈帧的 SEH 元数据）</span><br><span class="line">           └── RtlUserThreadStart$filt$0（本次找到的过滤表达式）</span><br><span class="line">               └── UnhandledExceptionFilter（系统顶层机制）</span><br><span class="line">                   └── MyException（进程设置的筛选器，条件满足时调用）</span><br></pre></td></tr></table></figure>
+
+<h3 id="6-为什么异常会查找到-RtlUserThreadStart？它是不是新线程？"><a href="#6-为什么异常会查找到-RtlUserThreadStart？它是不是新线程？" class="headerlink" title="6. 为什么异常会查找到 RtlUserThreadStart？它是不是新线程？"></a>6. 为什么异常会查找到 <code>RtlUserThreadStart</code>？它是不是新线程？</h3><p>本次 x64dbg 的虚拟展开路线是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">main</span><br><span class="line">   ↓ 继续向调用者查找</span><br><span class="line">BaseThreadInitThunk</span><br><span class="line">   ↓</span><br><span class="line">RtlUserThreadStart</span><br><span class="line">   ↓</span><br><span class="line">发现带有 SEH 元数据的线程启动作用域</span><br><span class="line">   ↓</span><br><span class="line">__C_specific_handler → RtlUserThreadStart$filt$0</span><br></pre></td></tr></table></figure>
+
+<p><code>RtlUserThreadStart</code> 属于 Windows 的线程启动路径。它通常早于用户线程入口函数执行，外层可以存在系统提供的异常保护。<strong>看到这个函数，不代表异常发生时 Windows 临时创建了新线程。</strong> 这是对同一个故障线程先前的调用路径进行回溯。</p>
+<p>相反，<code>KiUserExceptionDispatcher</code> 出现在异常分发阶段，并不是 <code>main</code> 主动执行 <code>call KiUserExceptionDispatcher</code>。当系统把异常转交用户态时，会安排故障线程进入异常分发入口；这是异常执行路径的转移，而非普通业务函数调用，也不需要创建新线程。</p>
+<p>本次观察到的 <code>RtlUserThreadStart$filt$0</code> 是线程启动函数的一段过滤表达式辅助代码。为了理解，可以把它抽象成“线程入口外围存在某种 <code>__try / __except</code> 保护，过滤表达式进一步执行顶层未处理异常机制”。<strong>这只是对本次二进制实现的概念解释，不是 Microsoft 公开保证的逐行源代码。</strong> CRT 初始化方式、Windows 版本、调试状态和线程启动路径不同，实际堆栈可能存在差异。</p>
+<p><code>SetUnhandledExceptionFilter</code> 设置的是进程层面的顶层筛选函数，但回调 <strong>在触发异常的那个线程中执行</strong>。因此，一个进程的不同线程可能共用同一个设置，局部 <code>__try / __except</code> 的保护范围仍要按照每个线程自己的栈帧分别搜索；一个线程的 SEH 不能自然地“跳过去”捕获另一个线程的异常。</p>
+<h3 id="7-虚拟展开与真实栈展开：搜索阶段为什么还没有执行-except？"><a href="#7-虚拟展开与真实栈展开：搜索阶段为什么还没有执行-except？" class="headerlink" title="7. 虚拟展开与真实栈展开：搜索阶段为什么还没有执行 __except？"></a>7. 虚拟展开与真实栈展开：搜索阶段为什么还没有执行 <code>__except</code>？</h3><p><strong>虚拟展开（Virtual Unwind）</strong> 是在异常搜索阶段利用 <code>UNWIND_INFO</code> 推算上一层调用帧的寄存器和栈指针，回答“下一层调用者在哪里”。它不等于已经在真实 CPU 栈上执行了函数返回，也不直接运行所经过每一层的 <code>__finally</code>。</p>
+<p><strong>真实栈展开（Actual Unwind）</strong> 则是在选定异常处理目标后，处理不再保留的调用帧，运行适用的清理&#x2F;终止处理程序，并构建转入目标异常处理块所需的执行状态。常见实现会涉及 <code>RtlUnwindEx</code> 以及恢复目标上下文的 <code>RtlRestoreContext</code>。</p>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>要解决的问题</th>
+<th>本次可见函数</th>
+<th>是否已转入 <code>__except</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>搜索</td>
+<td>哪个栈帧有适用的异常处理规则？</td>
+<td><code>RtlDispatchException</code>、<code>RtlLookupFunctionEntry</code>、<code>RtlpxVirtualUnwind</code></td>
+<td>否</td>
+</tr>
+<tr>
+<td>过滤</td>
+<td>当前 SEH 规则愿意处理这个异常吗？</td>
+<td><code>__C_specific_handler</code>、过滤表达式、<code>MyException</code></td>
+<td>尚未进入处理块</td>
+</tr>
+<tr>
+<td>实际展开</td>
+<td>离开故障位置，清理经过的帧，转向处理目标</td>
+<td><code>RtlUnwindEx</code></td>
+<td>准备转入</td>
+</tr>
+<tr>
+<td>上下文恢复</td>
+<td>让 CPU 从目标处理块对应的状态继续</td>
+<td><code>RtlRestoreContext</code> 等</td>
+<td>即将进入&#x2F;已经进入</td>
+</tr>
+<tr>
+<td>最终执行</td>
+<td>运行选定的处理代码</td>
+<td>线程入口的 <code>__except</code> 分支</td>
+<td>是</td>
+</tr>
+</tbody></table>
+<p>注意两种“恢复”完全不同：过滤器返回 <code>EXCEPTION_CONTINUE_EXECUTION</code> 时，系统尝试从故障点或修改后的异常 <code>CONTEXT</code> 继续；而过滤器选择 <code>EXCEPTION_EXECUTE_HANDLER</code> 后，系统会转入匹配的 <code>__except</code>，并不是回去重新执行出错指令。</p>
+<p>在本次跟踪中，实际路径表现为：<code>MyException</code> 返回 <code>1</code> → 线程入口过滤表达式选择执行处理块 → <code>RtlUnwindEx</code> → <code>RtlRestoreContext</code> → <code>RtlUserThreadStart</code> 的 <code>__except</code> 分支 → <code>NtTerminateProcess</code>。因此，<strong>不是 <code>MyException</code> 直接调用了终止进程 API</strong>；它的返回值参与了外层异常处理规则的选择。</p>
+<h3 id="8-SetUnhandledExceptionFilter-API-详解"><a href="#8-SetUnhandledExceptionFilter-API-详解" class="headerlink" title="8. SetUnhandledExceptionFilter API 详解"></a>8. SetUnhandledExceptionFilter API 详解</h3><h4 id="1-函数原型"><a href="#1-函数原型" class="headerlink" title="1. 函数原型"></a>1. 函数原型</h4><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">LPTOP_LEVEL_EXCEPTION_FILTER SetUnhandledExceptionFilter(</span><br><span class="line">    LPTOP_LEVEL_EXCEPTION_FILTER lpTopLevelExceptionFilter</span><br><span class="line">);</span><br></pre></td></tr></table></figure>
+
+<p>参数 <code>lpTopLevelExceptionFilter</code> 是一个函数指针，其对应的回调函数类型可以表示为：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">LONG WINAPI MyUnhandledExceptionFilter(</span><br><span class="line">    EXCEPTION_POINTERS *ExceptionInfo</span><br><span class="line">);</span><br></pre></td></tr></table></figure>
+
+<p>在 x86 Windows 中，<code>WINAPI</code> 通常对应 <code>__stdcall</code> 调用约定；在 x64 Windows 中，使用统一的 x64 调用约定。</p>
+<h4 id="2-注册回调函数"><a href="#2-注册回调函数" class="headerlink" title="2. 注册回调函数"></a>2. 注册回调函数</h4><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">SetUnhandledExceptionFilter(MyUnhandledExceptionFilter);</span><br></pre></td></tr></table></figure>
+
+<p>这句代码将自定义异常筛选函数的地址交给 Windows。</p>
+<p>如果未调试进程中的异常到达 <code>UnhandledExceptionFilter</code>，并满足该接口的调用条件，就可能调用这个自定义函数。</p>
+<p>这里需要特别强调：<strong>顶层筛选器正常被调用的公开契约包含“进程未处于调试状态”这一条件。</strong></p>
+<p>因此，使用 x32dbg 启动程序，即使故意抛出未处理异常，也不能保证注册的回调会像普通运行时一样执行。</p>
+<h4 id="3-返回值"><a href="#3-返回值" class="headerlink" title="3. 返回值"></a>3. 返回值</h4><p><code>SetUnhandledExceptionFilter</code> 返回之前设置的顶层异常筛选函数地址。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">LPTOP_LEVEL_EXCEPTION_FILTER old;</span><br><span class="line"></span><br><span class="line">old = SetUnhandledExceptionFilter(FilterA);</span><br></pre></td></tr></table></figure>
+
+<p>如果再执行：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">SetUnhandledExceptionFilter(FilterB);</span><br></pre></td></tr></table></figure>
+
+<p>当前生效的顶层筛选函数会变为 <code>FilterB</code>。</p>
+<p>它并不会自动形成如下异常链：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">FilterB -&gt; FilterA</span><br></pre></td></tr></table></figure>
+
+<p>旧函数指针只会作为返回值交给调用者。</p>
+<p>因此，准确说法是：</p>
+<p><strong>通过这个 API，当前进程的顶层筛选函数只有一个当前设置，新注册会替换旧注册。</strong></p>
+<h4 id="4-已注册回调的保存、指针编码与跳板函数"><a href="#4-已注册回调的保存、指针编码与跳板函数" class="headerlink" title="4. 已注册回调的保存、指针编码与跳板函数"></a>4. 已注册回调的保存、指针编码与跳板函数</h4><p><code>SetUnhandledExceptionFilter</code> 的公开语义是“把当前进程的顶层筛选函数改为指定函数，并返回旧函数指针”。至于系统在内部如何保存该指针，是实现细节。</p>
+<p>在本文记录的这次 Windows 跟踪中，系统使用了类似 <code>KERNELBASE!BasepCurrentTopLevelFilter</code> 的内部全局状态，并通过指针编码&#x2F;解码路径保护所保存的地址。x64dbg 中最初传入的地址也可能是模块跳板（thunk），跳转后才到真正的 <code>MyException</code> 函数体。不要把“汇编里看到的第一次地址”与“回调主体起始地址”混为一谈。</p>
+<p>这说明两件事：第一，内部编码并不改变“进程只有一个当前设置”的 API 语义；第二，<strong>内部变量名、编码过程和 thunk 形态都不是可移植的公开 ABI 约定</strong>，不同系统或构建版本应以实际调试证据为准。</p>
+<h4 id="5-NULL-返回值不等于注册失败"><a href="#5-NULL-返回值不等于注册失败" class="headerlink" title="5. NULL 返回值不等于注册失败"></a>5. <code>NULL</code> 返回值不等于注册失败</h4><p>特别需要纠正一个常见误区：<code>SetUnhandledExceptionFilter</code> 返回的是“旧的顶层筛选器地址”，返回 <code>NULL</code> 仅表示先前没有设置过这样的顶层筛选器，<strong>不能据此判定新回调注册失败</strong>。</p>
+<p>本文第二部分原始汇编示例包含 <code>test eax, eax</code> 并在为零时显示提示；该段汇编按原样保留供对照实验，但这条判断语句不应解读为该 API 的成功&#x2F;失败检测，尤其返回值在 x64 下本来就是指针。</p>
+<h4 id="6-为何调试器中注册了回调却可能不进入？"><a href="#6-为何调试器中注册了回调却可能不进入？" class="headerlink" title="6. 为何调试器中注册了回调却可能不进入？"></a>6. 为何调试器中注册了回调却可能不进入？</h4><p>官方文档对 <code>SetUnhandledExceptionFilter</code> 的顶层回调调用条件限定了<strong>进程未被调试</strong>。在被 x64dbg 附加或启动的情况下，即使调试器把 First Chance 异常交还给程序，也不能推导出 <code>MyException</code> 必定会执行；实际还取决于运行时和系统顶层过滤路径。详见第三部分的实验记录与本节第 15 小节。</p>
+<h3 id="9-EXCEPTION-POINTERS：异常记录与线程现场"><a href="#9-EXCEPTION-POINTERS：异常记录与线程现场" class="headerlink" title="9. EXCEPTION_POINTERS：异常记录与线程现场"></a>9. EXCEPTION_POINTERS：异常记录与线程现场</h3><p>异常回调函数最重要的参数就是：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">EXCEPTION_POINTERS *ExceptionInfo</span><br></pre></td></tr></table></figure>
+
+<p>Windows SDK 中的定义：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">typedef struct _EXCEPTION_POINTERS</span><br><span class="line">&#123;</span><br><span class="line">    PEXCEPTION_RECORD ExceptionRecord;</span><br><span class="line">    PCONTEXT ContextRecord;</span><br><span class="line"></span><br><span class="line">&#125; EXCEPTION_POINTERS;</span><br></pre></td></tr></table></figure>
+
+<p>这个结构体包含两个指针。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">EXCEPTION_POINTERS</span><br><span class="line">       |</span><br><span class="line">       +-- ExceptionRecord</span><br><span class="line">       |        |</span><br><span class="line">       |        v</span><br><span class="line">       |   EXCEPTION_RECORD</span><br><span class="line">       |   - ExceptionCode</span><br><span class="line">       |   - ExceptionFlags</span><br><span class="line">       |   - ExceptionAddress</span><br><span class="line">       |   - ExceptionInformation[]</span><br><span class="line">       |</span><br><span class="line">       +-- ContextRecord</span><br><span class="line">                |</span><br><span class="line">                v</span><br><span class="line">              CONTEXT</span><br><span class="line">              - EAX / RAX</span><br><span class="line">              - EIP / RIP</span><br><span class="line">              - ESP / RSP</span><br><span class="line">              - EFlags</span><br></pre></td></tr></table></figure>
+
+<p>其中：</p>
+<ul>
+<li><code>ExceptionRecord</code> 描述异常的类型、位置与附加信息。</li>
+<li><code>ContextRecord</code> 保存异常发生时的寄存器上下文。</li>
+</ul>
+<p>例如：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">DWORD code =</span><br><span class="line">    ExceptionInfo-&gt;ExceptionRecord-&gt;ExceptionCode;</span><br></pre></td></tr></table></figure>
+
+<p>以及：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">PVOID address =</span><br><span class="line">    ExceptionInfo-&gt;ExceptionRecord-&gt;ExceptionAddress;</span><br></pre></td></tr></table></figure>
+
+<h3 id="10-EXCEPTION-RECORD：异常类型与访问位置"><a href="#10-EXCEPTION-RECORD：异常类型与访问位置" class="headerlink" title="10. EXCEPTION_RECORD：异常类型与访问位置"></a>10. EXCEPTION_RECORD：异常类型与访问位置</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">typedef struct _EXCEPTION_RECORD</span><br><span class="line">&#123;</span><br><span class="line">    DWORD ExceptionCode;</span><br><span class="line">    DWORD ExceptionFlags;</span><br><span class="line"></span><br><span class="line">    struct _EXCEPTION_RECORD *ExceptionRecord;</span><br><span class="line"></span><br><span class="line">    PVOID ExceptionAddress;</span><br><span class="line">    DWORD NumberParameters;</span><br><span class="line"></span><br><span class="line">    ULONG_PTR ExceptionInformation[</span><br><span class="line">        EXCEPTION_MAXIMUM_PARAMETERS</span><br><span class="line">    ];</span><br><span class="line"></span><br><span class="line">&#125; EXCEPTION_RECORD;</span><br></pre></td></tr></table></figure>
+
+<h4 id="1-ExceptionCode"><a href="#1-ExceptionCode" class="headerlink" title="1. ExceptionCode"></a>1. ExceptionCode</h4><p>表示当前异常的类型。</p>
+<p>常见值：</p>
+<table>
+<thead>
+<tr>
+<th>异常代码</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>0xC0000005</code></td>
+<td>访问违规</td>
+</tr>
+<tr>
+<td><code>0x80000003</code></td>
+<td>INT3 断点异常</td>
+</tr>
+<tr>
+<td><code>0x80000004</code></td>
+<td>单步异常</td>
+</tr>
+<tr>
+<td><code>0x80000005</code></td>
+<td>缓冲区容量不足状态，不是 INT3</td>
+</tr>
+<tr>
+<td><code>0xC0000094</code></td>
+<td>整数除零</td>
+</tr>
+<tr>
+<td><code>0xC000001D</code></td>
+<td>非法指令</td>
+</tr>
+<tr>
+<td><code>0xC00000FD</code></td>
+<td>栈溢出</td>
+</tr>
+</tbody></table>
+<h4 id="2-ExceptionFlags"><a href="#2-ExceptionFlags" class="headerlink" title="2. ExceptionFlags"></a>2. ExceptionFlags</h4><p>其中比较重要的是：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">EXCEPTION_NONCONTINUABLE</span><br></pre></td></tr></table></figure>
+
+<p>它表示当前异常不可继续。</p>
+<p>如果对不可继续异常强行尝试恢复执行，可能产生新的 <code>STATUS_NONCONTINUABLE_EXCEPTION</code>。</p>
+<h4 id="3-ExceptionRecord"><a href="#3-ExceptionRecord" class="headerlink" title="3. ExceptionRecord"></a>3. ExceptionRecord</h4><p>该成员是指向其他相关异常记录的指针，例如用于描述嵌套异常信息。</p>
+<p>注意它不是 SEH 注册链表的 <code>Next</code> 指针。</p>
+<h4 id="4-ExceptionAddress"><a href="#4-ExceptionAddress" class="headerlink" title="4. ExceptionAddress"></a>4. ExceptionAddress</h4><p>表示异常发生的指令地址。</p>
+<p>例如：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">004010A0  mov dword ptr [eax], 0</span><br></pre></td></tr></table></figure>
+
+<p>如果这条指令访问地址 <code>0x0</code> 失败，那么：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ExceptionAddress = 004010A0</span><br></pre></td></tr></table></figure>
+
+<p>但是出错的内存访问地址是：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">00000000</span><br></pre></td></tr></table></figure>
+
+<p>这两个地址不能混为一谈。</p>
+<h4 id="5-ExceptionInformation"><a href="#5-ExceptionInformation" class="headerlink" title="5. ExceptionInformation"></a>5. ExceptionInformation</h4><p>对于访问违规异常 <code>0xC0000005</code>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ExceptionInformation[0]</span><br></pre></td></tr></table></figure>
+
+<p>通常表示访问类型：</p>
+<ul>
+<li><code>0</code>：读取。</li>
+<li><code>1</code>：写入。</li>
+<li><code>8</code>：执行访问违规，常见原因包括执行权限限制（例如 DEP&#x2F;NX）。</li>
+</ul>
+<p>而：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ExceptionInformation[1]</span><br></pre></td></tr></table></figure>
+
+<p>表示访问失败的虚拟地址。</p>
+<p>所以可以借助这些信息判断异常究竟是读取违规、写入违规，还是执行违规。</p>
+<h3 id="11-CONTEXT：异常现场与恢复执行"><a href="#11-CONTEXT：异常现场与恢复执行" class="headerlink" title="11. CONTEXT：异常现场与恢复执行"></a>11. CONTEXT：异常现场与恢复执行</h3><p><code>CONTEXT</code> 结构体用于保存异常发生时线程的处理器状态。</p>
+<p>x86 和 x64 中的主要对应成员：</p>
+<table>
+<thead>
+<tr>
+<th>x86</th>
+<th>x64</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Eax</code></td>
+<td><code>Rax</code></td>
+<td>通用寄存器</td>
+</tr>
+<tr>
+<td><code>Eip</code></td>
+<td><code>Rip</code></td>
+<td>指令位置</td>
+</tr>
+<tr>
+<td><code>Esp</code></td>
+<td><code>Rsp</code></td>
+<td>栈指针</td>
+</tr>
+<tr>
+<td><code>EFlags</code></td>
+<td><code>EFlags</code></td>
+<td>标志寄存器</td>
+</tr>
+<tr>
+<td><code>Dr0</code> 等</td>
+<td><code>Dr0</code> 等</td>
+<td>调试相关寄存器</td>
+</tr>
+</tbody></table>
+<p>假设执行：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">mov eax, 0</span><br><span class="line">mov dword ptr [eax], 0</span><br></pre></td></tr></table></figure>
+
+<p>第二条指令访问违规。</p>
+<p>如果程序有一个可写变量：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">MY_NUM dd 10000h</span><br></pre></td></tr></table></figure>
+
+<p>异常回调可以修改保存的寄存器：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">mov edi, [esi].ContextRecord</span><br><span class="line">assume edi:PTR CONTEXT</span><br><span class="line"></span><br><span class="line">mov [edi].regEax, OFFSET MY_NUM</span><br></pre></td></tr></table></figure>
+
+<p>这样做不是修改异常回调此刻正在使用的 EAX，而是修改将来恢复故障线程时要使用的 EAX。</p>
+<p>如果处理程序返回允许继续执行的结果，原指令可以使用新的有效地址重新执行。</p>
+<h3 id="12-异常返回值：LONG-与-EXCEPTION-DISPOSITION-不能混淆"><a href="#12-异常返回值：LONG-与-EXCEPTION-DISPOSITION-不能混淆" class="headerlink" title="12. 异常返回值：LONG 与 EXCEPTION_DISPOSITION 不能混淆"></a>12. 异常返回值：LONG 与 EXCEPTION_DISPOSITION 不能混淆</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">#define EXCEPTION_EXECUTE_HANDLER      1</span><br><span class="line">#define EXCEPTION_CONTINUE_SEARCH      0</span><br><span class="line">#define EXCEPTION_CONTINUE_EXECUTION  -1</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>返回值</th>
+<th>顶层未处理异常筛选器中的意义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>EXCEPTION_CONTINUE_SEARCH</code></td>
+<td>继续 <code>UnhandledExceptionFilter</code> 的默认处理逻辑</td>
+</tr>
+<tr>
+<td><code>EXCEPTION_EXECUTE_HANDLER</code></td>
+<td>返回到关联的最终异常处理程序，通常导致进程终止</td>
+</tr>
+<tr>
+<td><code>EXCEPTION_CONTINUE_EXECUTION</code></td>
+<td>尝试根据保存或修改后的线程上下文继续执行</td>
+</tr>
+</tbody></table>
+<p>这里有两个容易混淆的地方。</p>
+<p>第一，顶层筛选器返回 <code>EXCEPTION_CONTINUE_SEARCH</code>，<strong>不表示自动调用前一个通过 SetUnhandledExceptionFilter 注册的函数</strong>。</p>
+<p>第二，<code>EXCEPTION_EXECUTE_HANDLER</code> 在普通 SEH 的 <code>__except</code> 表达式中意味着进入对应异常处理块，而在顶层未处理异常阶段通常意味着进入最终处理或终止路径。</p>
+<p>若返回：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mov eax, EXCEPTION_CONTINUE_EXECUTION</span><br></pre></td></tr></table></figure>
+
+<p>但没有修复原本的无效访问地址，恢复执行后仍可能再次触发同一异常。</p>
+<h4 id="1-过滤表达式返回-LONG：-1-0-1"><a href="#1-过滤表达式返回-LONG：-1-0-1" class="headerlink" title="1. 过滤表达式返回 LONG：-1 / 0 / 1"></a>1. 过滤表达式返回 <code>LONG</code>：<code>-1 / 0 / 1</code></h4><p><code>__except</code> 的过滤表达式，以及用户注册的 <code>MyException</code>，使用的是异常筛选结果约定：</p>
+<table>
+<thead>
+<tr>
+<th>数值</th>
+<th>常量</th>
+<th>筛选层含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>-1</code></td>
+<td><code>EXCEPTION_CONTINUE_EXECUTION</code></td>
+<td>要求从保存或修改过的异常上下文继续执行</td>
+</tr>
+<tr>
+<td><code>0</code></td>
+<td><code>EXCEPTION_CONTINUE_SEARCH</code></td>
+<td>本层不接受异常，交给其他处理逻辑</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td><code>EXCEPTION_EXECUTE_HANDLER</code></td>
+<td>选择当前受保护范围关联的异常处理块</td>
+</tr>
+</tbody></table>
+<p>对于顶层 <code>SetUnhandledExceptionFilter</code> 回调，<code>0</code> 还需按 <code>UnhandledExceptionFilter</code> 自身的公开契约理解：它让系统继续其默认的顶层未处理异常逻辑，并非自动恢复上一个被替换的回调。</p>
+<h4 id="2-语言异常处理器返回-EXCEPTION-DISPOSITION：0-1-2-3"><a href="#2-语言异常处理器返回-EXCEPTION-DISPOSITION：0-1-2-3" class="headerlink" title="2. 语言异常处理器返回 EXCEPTION_DISPOSITION：0 / 1 / 2 / 3"></a>2. 语言异常处理器返回 <code>EXCEPTION_DISPOSITION</code>：<code>0 / 1 / 2 / 3</code></h4><p>底层语言处理器（例如 <code>__C_specific_handler</code>）返回给异常分发器的枚举是另一套协议：</p>
+<table>
+<thead>
+<tr>
+<th>数值</th>
+<th><code>EXCEPTION_DISPOSITION</code> 枚举项</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>0</code></td>
+<td><code>ExceptionContinueExecution</code></td>
+<td>已决定可继续恢复异常执行</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td><code>ExceptionContinueSearch</code></td>
+<td>当前栈帧未接受，继续查找更外层帧</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><code>ExceptionNestedException</code></td>
+<td>协调嵌套异常时的分发状态</td>
+</tr>
+<tr>
+<td><code>3</code></td>
+<td><code>ExceptionCollidedUnwind</code></td>
+<td>协调栈展开过程中碰撞的展开情况</td>
+</tr>
+</tbody></table>
+<p><strong>不要因为两者都出现了数字 <code>0</code> 和 <code>1</code>，就把它们当作同一种返回值。</strong> 一套是应用级过滤表达式的决策，另一套是语言处理器向分发器报告的处理结果。</p>
+<h4 id="3-两套返回值如何联系？"><a href="#3-两套返回值如何联系？" class="headerlink" title="3. 两套返回值如何联系？"></a>3. 两套返回值如何联系？</h4><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">MyException → UnhandledExceptionFilter → RtlUserThreadStart$filt$0</span><br><span class="line">       （过滤层：返回 LONG 的 -1、0 或 1）</span><br><span class="line">                          │</span><br><span class="line">                          ▼</span><br><span class="line">                 __C_specific_handler</span><br><span class="line">       （解释过滤结果，并按情形继续搜索或实际展开）</span><br><span class="line">                          │</span><br><span class="line">                          ▼</span><br><span class="line">                  RtlDispatchException</span><br><span class="line">       （分发层：接受 EXCEPTION_DISPOSITION 结果）</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>过滤器给出 <code>-1</code>：若允许继续，语言处理器可向分发器报告 <code>ExceptionContinueExecution</code>（底层数值 <code>0</code>）。</li>
+<li>过滤器给出 <code>0</code>：继续检查其他适用的作用域；若都不接受，则向外层栈帧继续搜索，报告 <code>ExceptionContinueSearch</code>（底层数值 <code>1</code>）。</li>
+<li>过滤器给出 <code>1</code>：已选择相应 <code>__except</code>，语言处理器可能调用 <code>RtlUnwindEx</code>，转入实际展开和处理代码，不一定按普通函数返回路径回到分发器。</li>
+</ul>
+<p>在本次 demo 中，<code>MyException</code> 通过 <code>mov eax, EXCEPTION_EXECUTE_HANDLER</code> 返回的 <code>1</code>，属于<strong>过滤层的 <code>1</code></strong>，并不是 <code>__C_specific_handler</code> 的 <code>ExceptionContinueSearch</code>。</p>
+<h3 id="13-其他相关的-Win32-API"><a href="#13-其他相关的-Win32-API" class="headerlink" title="13. 其他相关的 Win32 API"></a>13. 其他相关的 Win32 API</h3><p><strong>RaiseException</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">VOID RaiseException(</span><br><span class="line">    DWORD dwExceptionCode,</span><br><span class="line">    DWORD dwExceptionFlags,</span><br><span class="line">    DWORD nNumberOfArguments,</span><br><span class="line">    const ULONG_PTR *lpArguments</span><br><span class="line">);</span><br></pre></td></tr></table></figure>
+
+<p>作用是主动产生软件异常，例如：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">RaiseException(0xE0424242, 0, 0, NULL);</span><br></pre></td></tr></table></figure>
+
+<p>第二个参数为 <code>0</code> 时表示可继续异常。</p>
+<p><strong>UnhandledExceptionFilter</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">LONG UnhandledExceptionFilter(</span><br><span class="line">    EXCEPTION_POINTERS *ExceptionInfo</span><br><span class="line">);</span><br></pre></td></tr></table></figure>
+
+<p>负责 Windows 的默认顶层未处理异常逻辑，不是用户自己通过注册 API 提供的函数。</p>
+<p><strong>GetExceptionInformation</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">LPEXCEPTION_POINTERS GetExceptionInformation(void);</span><br></pre></td></tr></table></figure>
+
+<p>用于 MSVC 的 SEH 过滤表达式中，获取异常记录和上下文。它不能当成可在任何函数中自由调用的普通 Win32 API。</p>
+<p>顶层筛选函数已经通过参数直接收到 <code>EXCEPTION_POINTERS*</code>，不需要再调用它。</p>
+<p><strong>SetErrorMode</strong></p>
+<p>可控制部分系统错误处理行为，例如 <code>SEM_NOGPFAULTERRORBOX</code> 影响应用错误消息框显示。</p>
+<p>这不是异常修复 API。</p>
+<p><strong>MiniDumpWriteDump</strong></p>
+<p>由 <code>DbgHelp</code> 提供，用于把进程诊断信息写入 <code>.dmp</code> 文件。</p>
+<p>它可以配合：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">typedef struct _MINIDUMP_EXCEPTION_INFORMATION</span><br><span class="line">&#123;</span><br><span class="line">    DWORD ThreadId;</span><br><span class="line">    PEXCEPTION_POINTERS ExceptionPointers;</span><br><span class="line">    BOOL ClientPointers;</span><br><span class="line"></span><br><span class="line">&#125; MINIDUMP_EXCEPTION_INFORMATION;</span><br></pre></td></tr></table></figure>
+
+<p>记录故障线程 ID、异常信息以及寄存器现场。</p>
+<h3 id="14-异常未处理时的结果与进程终止"><a href="#14-异常未处理时的结果与进程终止" class="headerlink" title="14. 异常未处理时的结果与进程终止"></a>14. 异常未处理时的结果与进程终止</h3><p>当异常不能安全恢复时，Windows 通常会进入默认未处理异常流程，可能包括错误报告、转储生成和进程终止。</p>
+<p>Windows Error Reporting（WER）可以根据系统配置收集崩溃数据。</p>
+<p>但是必须区分：</p>
+<ul>
+<li><code>SetUnhandledExceptionFilter</code>：注册顶层异常筛选回调。</li>
+<li><code>MiniDumpWriteDump</code>：生成调试转储文件。</li>
+<li>WER：Windows 的错误报告机制。</li>
+</ul>
+<p>它们不是同一个功能，更不能认为每次异常发生后都会向网络上传信息。</p>
+<p>生产软件中，顶层回调应主要用于最后的故障诊断。已经出现栈损坏、堆损坏或严重状态破坏时，不应盲目依靠 <code>EXCEPTION_CONTINUE_EXECUTION</code> 强行恢复程序。</p>
+<p>特别是 <code>RaiseFailFastException</code>、<code>__fastfail</code> 等机制，可能绕过常规异常处理并快速终止进程。</p>
+<h3 id="15-将理论对应到-x64dbg：如何观察而不误判？"><a href="#15-将理论对应到-x64dbg：如何观察而不误判？" class="headerlink" title="15. 将理论对应到 x64dbg：如何观察而不误判？"></a>15. 将理论对应到 x64dbg：如何观察而不误判？</h3><p>第三部分的跟踪有几个非常适合用来检验以上概念的观察点：</p>
+<table>
+<thead>
+<tr>
+<th>调试现象</th>
+<th>正确理解</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>main</code> 没有 <code>call KiUserExceptionDispatcher</code>，执行流却进入了该函数</td>
+<td>系统安排的异常分发，不是普通应用函数调用，也不是新线程</td>
+</tr>
+<tr>
+<td><code>RtlDispatchException</code> 一开始保存寄存器、分配栈帧、检查栈界限</td>
+<td>是分发器自己的正常函数序言&#x2F;局部工作，不代表已经实际展开了 <code>main</code></td>
+</tr>
+<tr>
+<td>通过 <code>GS:[60h]</code> 访问 PEB，再检查 <code>CrossProcessFlags</code> 位</td>
+<td>本次实现中的 VEH 快速检测路径，不是 <code>FS:[0]</code> 式 SEH 链遍历</td>
+</tr>
+<tr>
+<td>观察到 <code>ProcessUsingVEH</code> 位为 0，跳过具体 VEH 回调循环</td>
+<td>只说明该次路径没有进入相应调用循环；PEB 字段偏移、位测试与实现细节要以系统版本为准</td>
+</tr>
+<tr>
+<td><code>RtlLookupFunctionEntry</code>、<code>RtlpxVirtualUnwind</code> 循环回溯调用者</td>
+<td>处于 SEH 搜索&#x2F;虚拟展开阶段</td>
+</tr>
+<tr>
+<td>在 <code>RtlUserThreadStart</code> 对应展开信息中看到 <code>UNW_FLAG_EHANDLER</code></td>
+<td>当前栈帧关联语言异常处理器，不代表用户注册的顶层筛选器已经被直接定位</td>
+</tr>
+<tr>
+<td>经过 <code>_guard_dispatch_icall$thunk</code> 之类路径</td>
+<td>可能是在执行 CFG 间接调用校验&#x2F;分派，CFG 不是独立的异常处理阶段</td>
+</tr>
+<tr>
+<td><code>MyException</code> 返回 <code>1</code> 以后又调用 <code>RtlUnwindEx</code></td>
+<td>过滤结果选择了某个 <code>__except</code>，开始实际栈展开，而不是重新执行故障指令</td>
+</tr>
+</tbody></table>
+<h4 id="erun-与-serun-的实际区别"><a href="#erun-与-serun-的实际区别" class="headerlink" title="erun 与 serun 的实际区别"></a><code>erun</code> 与 <code>serun</code> 的实际区别</h4><p>根据 x64dbg 的命令文档，<code>erun</code> &#x2F; <code>ego</code> 会把 First Chance 异常交给被调试程序；<code>serun</code> &#x2F; <code>sego</code> 则会吞掉当前异常，跳过将它分发给被调试程序的步骤。</p>
+<p><strong>吞掉异常不等于修复异常原因。</strong> 如果故障 <code>RIP</code> 仍然指向对零地址写入的指令，执行继续之后通常又会产生同样的访问违规。反过来，<code>erun</code> 只是允许应用程序的异常机制介入，不能保证调试状态下 <code>SetUnhandledExceptionFilter</code> 的用户回调必然会运行。</p>
+<blockquote>
+<p><strong>观察范围说明</strong>：本文出现的 <code>RtlpCallVectoredHandlers</code>、<code>RtlpxVirtualUnwind</code>、<code>RtlUserThreadStart$filt$0</code>、<code>BasepCurrentTopLevelFilter</code>、CFG 跳板和绝对地址，主要来自一次具体 Windows&#x2F;x64dbg 运行。公开契约与系统内部实现必须分层看待；系统更新、编译选项及调试策略都可能改变具体调用路径。</p>
+</blockquote>
+<h2 id="二、64-位汇编实验：捕获并显示访问违规异常"><a href="#二、64-位汇编实验：捕获并显示访问违规异常" class="headerlink" title="二、64 位汇编实验：捕获并显示访问违规异常"></a>二、64 位汇编实验：捕获并显示访问违规异常</h2><p>本实验使用 Windows x64 平台与 Visual Studio 2022 的 ML64 汇编器，通过 <code>SetUnhandledExceptionFilter</code> 注册顶层未处理异常回调，制造访问违规异常，并使用 <code>sprintf</code> 和 <code>MessageBoxA</code> 显示异常信息。</p>
+<h3 id="1-实验介绍"><a href="#1-实验介绍" class="headerlink" title="1. 实验介绍"></a>1. 实验介绍</h3><blockquote>
+<p><strong>汇编保留说明</strong>：以下 ML64 源码及编译命令保持原稿，不对指令和定义作修改。本章重在解释异常回调的观察路径。编写或复用 x64 非叶函数时仍必须独立核查调用点的 16 字节栈对齐、shadow space 与展开元数据；尤其不能把缺少正确展开信息的非叶回调当成适用于所有异常场景的标准模板。</p>
+</blockquote>
+<h4 id="1-实验执行流程"><a href="#1-实验执行流程" class="headerlink" title="1. 实验执行流程"></a>1. 实验执行流程</h4><ol>
+<li>程序进入 <code>main</code>。</li>
+<li>注册自定义异常筛选函数 <code>MyException</code>。</li>
+<li>通过 <code>xor eax,eax</code> 将 RAX 清零。</li>
+<li>执行 <code>mov dword ptr [rax],0</code>，尝试向无效内存地址写入数据。</li>
+<li>Windows 通常产生 <code>0xC0000005</code> 访问违规异常。</li>
+<li>当异常到达顶层未处理异常处理阶段，且满足回调调用条件时，执行 <code>MyException</code>。</li>
+<li>回调从 <code>EXCEPTION_RECORD</code> 中提取异常代码和异常地址。</li>
+<li>使用 <code>sprintf</code> 格式化异常信息，通过 <code>MessageBoxA</code> 显示。</li>
+<li>返回 <code>EXCEPTION_EXECUTE_HANDLER</code>，进入最终异常处理流程，通常导致进程终止。</li>
+</ol>
+<h4 id="2-完整汇编代码"><a href="#2-完整汇编代码" class="headerlink" title="2. 完整汇编代码"></a>2. 完整汇编代码</h4><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br></pre></td><td class="code"><pre><span class="line">EXTERN SetUnhandledExceptionFilter:PROC</span><br><span class="line">EXTERN MessageBoxA:PROC</span><br><span class="line">EXTERN sprintf:PROC</span><br><span class="line">INCLUDELIB user32.lib</span><br><span class="line">INCLUDELIB kernel32.lib</span><br><span class="line">INCLUDELIB ucrt.lib</span><br><span class="line">INCLUDELIB legacy_stdio_definitions.lib</span><br><span class="line">EXCEPTION_EXECUTE_HANDLER EQU 1</span><br><span class="line">EXCEPTION_CONTINUE_SEARCH EQU 0</span><br><span class="line"></span><br><span class="line">.data</span><br><span class="line">g_fail_msg db &quot;筛选器异常注册失败&quot;, 0</span><br><span class="line">g_fail_format db &quot;异常代码：%08X&quot;, 0</span><br><span class="line">g_buffer db 128 dup(0) </span><br><span class="line">.code</span><br><span class="line"></span><br><span class="line">MyException proc  Exceptioninfo:ptr EXCEPTION_POINTERS</span><br><span class="line">    sub rsp, 30h</span><br><span class="line">    ; RCX = EXCEPTION_POINTERS*</span><br><span class="line"></span><br><span class="line">    mov rdx, qword ptr [rcx]       ; RDX = ExceptionRecord*</span><br><span class="line">    mov r8,  qword ptr [rcx+8]     ; R8  = ContextRecord*</span><br><span class="line"></span><br><span class="line">    mov r10d, dword ptr [rdx]      ; R10D = ExceptionCode</span><br><span class="line">    mov r9, qword ptr [rdx+10h]    ; R9 = ExceptionAddress</span><br><span class="line"></span><br><span class="line">    cmp r10d, 0C0000005h              ; 检查是否为访问冲突异常</span><br><span class="line">    jne continue_search</span><br><span class="line">        lea rcx, g_buffer</span><br><span class="line">        lea rdx, g_fail_format</span><br><span class="line">        mov r8, r10</span><br><span class="line">        call sprintf  </span><br><span class="line">        lea rdx, g_buffer</span><br><span class="line">        xor rcx, rcx</span><br><span class="line">        xor r8, r8</span><br><span class="line">        xor r9, r9</span><br><span class="line">        call MessageBoxA</span><br><span class="line">        mov eax, EXCEPTION_EXECUTE_HANDLER   ; 返回 EXCEPTION_EXECUTE_HANDLER</span><br><span class="line">        add rsp, 30h</span><br><span class="line">        ret</span><br><span class="line">continue_search:    </span><br><span class="line"></span><br><span class="line">    mov eax, EXCEPTION_CONTINUE_SEARCH   ; 返回 EXCEPTION_CONTINUE_SEARCH</span><br><span class="line">    add rsp, 30h</span><br><span class="line">    ret</span><br><span class="line">MyException endp</span><br><span class="line"></span><br><span class="line">main proc FRAME</span><br><span class="line">    sub rsp,28h</span><br><span class="line">    .allocstack 28h</span><br><span class="line">    .endprolog</span><br><span class="line">    lea rcx, MyException</span><br><span class="line">    call SetUnhandledExceptionFilter</span><br><span class="line">    test eax, eax</span><br><span class="line">    jnz go_on</span><br><span class="line">        lea rdx, g_fail_msg</span><br><span class="line">        xor rcx, rcx</span><br><span class="line">        xor r8, r8</span><br><span class="line">        xor r9, r9</span><br><span class="line">        call MessageBoxA</span><br><span class="line">go_on:    </span><br><span class="line">    mov eax, 0</span><br><span class="line">    mov dword ptr [eax], 0</span><br><span class="line">    add rsp,28h</span><br><span class="line">    ret</span><br><span class="line">main endp</span><br><span class="line">END </span><br><span class="line"></span><br><span class="line"></span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<h4 id="3-编译命令"><a href="#3-编译命令" class="headerlink" title="3. 编译命令"></a>3. 编译命令</h4><p>使用 Visual Studio 2022 的 <strong>x64 Native Tools Command Prompt</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ml64 /nologo /c /Fo uef_x64.obj uef_x64.asm</span><br><span class="line"></span><br><span class="line">link /nologo /SUBSYSTEM:WINDOWS /ENTRY:main /OUT:uef_x64.exe uef_x64.obj user32.lib kernel32.lib ucrt.lib legacy_stdio_definitions.lib</span><br></pre></td></tr></table></figure>
+
+<p>建议首先在没有附加调试器的情况下运行 EXE。</p>
+<h4 id="4-预期实验结果"><a href="#4-预期实验结果" class="headerlink" title="4. 预期实验结果"></a>4. 预期实验结果</h4><p>如果回调成功执行，将弹出一个消息框：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ExceptionCode: C0000005</span><br></pre></td></tr></table></figure>
+
+<p>关闭窗口后，程序通常进入最终未处理异常路径并终止。</p>
+<h3 id="2-ML64-汇编语法重点"><a href="#2-ML64-汇编语法重点" class="headerlink" title="2. ML64 汇编语法重点"></a>2. ML64 汇编语法重点</h3><h4 id="1-外部函数声明"><a href="#1-外部函数声明" class="headerlink" title="1. 外部函数声明"></a>1. 外部函数声明</h4><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">EXTERN MessageBoxA:PROC</span><br></pre></td></tr></table></figure>
+
+<p>告诉汇编器 <code>MessageBoxA</code> 是一个外部函数符号。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">INCLUDELIB user32.lib</span><br></pre></td></tr></table></figure>
+
+<p>告诉链接器需要使用 <code>user32.lib</code>。</p>
+<p>两者分别负责函数声明和外部符号链接。</p>
+<h4 id="2-64-位函数定义"><a href="#2-64-位函数定义" class="headerlink" title="2. 64 位函数定义"></a>2. 64 位函数定义</h4><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">MyException PROC FRAME</span><br><span class="line">    sub rsp,28h</span><br><span class="line">    .allocstack 28h</span><br><span class="line">    .endprolog</span><br></pre></td></tr></table></figure>
+
+<p><code>PROC FRAME</code> 表示建立带有栈展开元数据的函数。</p>
+<p><code>sub rsp,28h</code> 申请 40 字节栈空间，其中包括 32 字节的 shadow space，并在正常调用约定下保证调用点所需的栈对齐。</p>
+<p><code>.allocstack</code> 用于描述栈空间分配，供 Windows 栈展开机制使用。</p>
+<p><code>.endprolog</code> 标记函数序言结束。</p>
+<h4 id="3-Windows-x64-参数传递"><a href="#3-Windows-x64-参数传递" class="headerlink" title="3. Windows x64 参数传递"></a>3. Windows x64 参数传递</h4><p>Windows x64 前四个整数或指针参数通常由以下寄存器传递：</p>
+<table>
+<thead>
+<tr>
+<th>参数顺序</th>
+<th>寄存器</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>第一个</td>
+<td>RCX</td>
+</tr>
+<tr>
+<td>第二个</td>
+<td>RDX</td>
+</tr>
+<tr>
+<td>第三个</td>
+<td>R8</td>
+</tr>
+<tr>
+<td>第四个</td>
+<td>R9</td>
+</tr>
+</tbody></table>
+<p>例如：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">lea rcx,g_buffer</span><br><span class="line">lea rdx,g_fail_format</span><br><span class="line">mov r8d,r10d</span><br><span class="line">call sprintf</span><br></pre></td></tr></table></figure>
+
+<p>这里的第四个参数 <code>R9</code> 已提前保存 <code>ExceptionAddress</code>。</p>
+<h4 id="4-EXCEPTION-POINTERS-的指针关系"><a href="#4-EXCEPTION-POINTERS-的指针关系" class="headerlink" title="4. EXCEPTION_POINTERS 的指针关系"></a>4. EXCEPTION_POINTERS 的指针关系</h4><p>进入 <code>MyException</code> 时：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">RCX = EXCEPTION_POINTERS*</span><br></pre></td></tr></table></figure>
+
+<p>64 位结构体布局：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">EXCEPTION_POINTERS</span><br><span class="line">+00h ExceptionRecord</span><br><span class="line">+08h ContextRecord</span><br></pre></td></tr></table></figure>
+
+<p>因此：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mov rdx,qword ptr [rcx]</span><br></pre></td></tr></table></figure>
+
+<p>表示读取 <code>ExceptionRecord</code> 指针。</p>
+<p>然后：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mov r10d,dword ptr [rdx]</span><br></pre></td></tr></table></figure>
+
+<p>读取 <code>ExceptionCode</code>。</p>
+<p>再执行：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mov r9,qword ptr [rdx+10h]</span><br></pre></td></tr></table></figure>
+
+<p>读取 <code>ExceptionAddress</code>。</p>
+<p>这三句分别对应 C 语言中的：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">EXCEPTION_RECORD *record =</span><br><span class="line">    info-&gt;ExceptionRecord;</span><br><span class="line"></span><br><span class="line">DWORD code =</span><br><span class="line">    record-&gt;ExceptionCode;</span><br><span class="line"></span><br><span class="line">PVOID address =</span><br><span class="line">    record-&gt;ExceptionAddress;</span><br></pre></td></tr></table></figure>
+
+<h4 id="5-RAX-和-EAX-的区别"><a href="#5-RAX-和-EAX-的区别" class="headerlink" title="5. RAX 和 EAX 的区别"></a>5. RAX 和 EAX 的区别</h4><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">xor eax,eax</span><br></pre></td></tr></table></figure>
+
+<p>清空 EAX，同时把 RAX 高 32 位清零，因此整个 RAX 为零。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mov dword ptr [rax],0</span><br></pre></td></tr></table></figure>
+
+<p>将 RAX 视为内存地址，向它指向的内存写入 4 字节零。</p>
+<p>这与直接给寄存器赋值不同。</p>
+<h4 id="6-异常回调返回值"><a href="#6-异常回调返回值" class="headerlink" title="6. 异常回调返回值"></a>6. 异常回调返回值</h4><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mov eax,EXCEPTION_EXECUTE_HANDLER</span><br></pre></td></tr></table></figure>
+
+<p>表示回调返回 <code>1</code>，通知系统采取相应的顶层异常处理结果。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mov eax,EXCEPTION_CONTINUE_SEARCH</span><br></pre></td></tr></table></figure>
+
+<p>表示回调返回 <code>0</code>，交还系统默认未处理异常流程。</p>
+<p>本实验没有使用 <code>EXCEPTION_CONTINUE_EXECUTION</code>。</p>
+<p>因此，代码不是让原本失败的内存写入重新成功，而是演示如何获取、格式化和显示顶层未处理异常的信息。</p>
+<h4 id="7-注意注册函数返回值"><a href="#7-注意注册函数返回值" class="headerlink" title="7. 注意注册函数返回值"></a>7. 注意注册函数返回值</h4><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">lea rcx,MyException</span><br><span class="line">call SetUnhandledExceptionFilter</span><br></pre></td></tr></table></figure>
+
+<p>调用完成后，RAX 存放的是先前注册的顶层异常筛选函数指针。因此，<strong>原始代码中根据返回值为零而显示“注册失败”的提示不能作为 API 调用失败的证明</strong>；<code>NULL</code> 只表示旧的回调没有设置。此处为保留原始汇编实验，没有修改那两条指令。</p>
+<h2 id="三、x64dbg-实战调试"><a href="#三、x64dbg-实战调试" class="headerlink" title="三、x64dbg 实战调试"></a>三、x64dbg 实战调试</h2><h3 id="1-调试环境与异常触发"><a href="#1-调试环境与异常触发" class="headerlink" title="1. 调试环境与异常触发"></a>1. 调试环境与异常触发</h3><p>程序进入 <code>main</code> 后，先通过 <code>SetUnhandledExceptionFilter</code> 设置 <code>MyException</code>。这里重点验证上一章解释过的“跳板地址、内部保存指针、回调主体”之间的关系。</p>
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-1.png" class="">
+
+<p>本次 x64dbg 运行中，传入的 <code>00007FF6C5D310B4</code> 为一个跳板函数地址；这些绝对地址仅适用于该次运行。</p>
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-2.png" class="">
+
+<p>沿跳板继续跟随，<code>00007FF6C5D31720</code> 才进入本次编译产物中实际的回调函数主体。</p>
+<p>本次观察到的实现通过 <code>KERNELBASE!BasepCurrentTopLevelFilter</code> 一类内部位置保存当前顶层过滤器相关状态，并涉及编码&#x2F;解码的指针访问。这里的符号名和数据格式属于具体系统实现，并不是稳定公开 API。</p>
+<p>实际进入 <code>UnhandledExceptionFilter</code> 后，系统沿本次实现对应的解码与间接调用路径找到该回调。</p>
+<p>使用 x64dbg 调试到零地址写入处，可以比较 <code>erun</code> 与 <code>serun</code>：前者把 First Chance 异常交给程序自身的异常机制，后者吞掉当前异常。<code>serun</code> 既不会自动修复访问地址，也不会自动跳过故障指令，因此可能反复停在同一 <code>RIP</code>。<strong>由于进程仍处于调试状态，执行 <code>erun</code> 并不保证顶层回调一定弹出对话框</strong>；下面的调用链为本次实际观察到的路径。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">flowchart TD</span><br><span class="line">    A[&quot;PE 入口跳板 → main&quot;] --&gt; B[&quot;注册 MyException&quot;]</span><br><span class="line">    B --&gt; C[&quot;main 写入地址 0&quot;]</span><br><span class="line">    C --&gt; D[&quot;系统产生访问冲突&lt;br/&gt;调试器将异常交给程序&quot;]</span><br><span class="line">    D --&gt; E[&quot;KiUserExceptionDispatcher&quot;]</span><br><span class="line">    E --&gt; F[&quot;RtlDispatchException&lt;br/&gt;先检查向量处理器&quot;]</span><br><span class="line">    F --&gt; G[&quot;查表、虚拟展开&lt;br/&gt;main → BaseThreadInitThunk → RtlUserThreadStart&quot;]</span><br><span class="line">    G --&gt; H[&quot;RtlpExecuteHandlerForException&quot;]</span><br><span class="line">    H --&gt; I[&quot;__C_specific_handler&lt;br/&gt;读取线程入口的 SEH 作用域表&quot;]</span><br><span class="line">    I --&gt; J[&quot;RtlUserThreadStart$filt$0&quot;]</span><br><span class="line">    J --&gt; K[&quot;UnhandledExceptionFilter&lt;br/&gt;读取并解码已注册回调&quot;]</span><br><span class="line">    K --&gt; L[&quot;MyException&lt;br/&gt;sprintf → MessageBoxA → 返回 1&quot;]</span><br><span class="line">    L --&gt; M[&quot;__C_specific_handler&lt;br/&gt;调用 RtlUnwindEx&quot;]</span><br><span class="line">    M --&gt; N[&quot;RtlRestoreContext&lt;br/&gt;转到线程入口的 except 分支&quot;]</span><br><span class="line">    N --&gt; O[&quot;NtTerminateProcess&lt;br/&gt;进程退出&quot;]</span><br></pre></td></tr></table></figure>
+
+<p>这里需要区分：<strong>搜索外层栈帧时是在计算保存的上下文；找到处理器之后，才实际调用处理器。</strong></p>
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-3.png" class="">
+
+<p>而我们的demo对这个演示非常清晰，首先异常之后，就会调用<code>ntdll.KiUserExceptionDispatcher</code>这个异常处理分发器，如上图，它是 Windows 把异常交给用户态处理的入口，位于 <code>ntdll.dll</code>它负责接收异常信息、启动处理器搜索，并根据处理结果恢复执行或继续上报异常。<code>main</code> 中没有 <code>call KiUserExceptionDispatcher</code>。这是系统因异常而安排的执行转移。<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-4.png" class=""></p>
+<p>它会在之后调用<code>RtlDispatchException</code>这个搜索并调用异常处理器”的核心函数，这个异常分发接受两份数据，首先是<code>EXCEPTION_RECORD</code>异常代码、故障地址、访问的是读还是写，其次是<code>CONTEXT</code>故障发生时的 RIP、RSP 和其他寄存器</p>
+<p>在这里的两个参数，刚好说明了这个函数读取的内容</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">add rcx, 4F0h       ; RCX = EXCEPTION_RECORD*</span><br><span class="line">mov rdx, rsp       ; RDX = CONTEXT*</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>对比</th>
+<th><code>KiUserExceptionDispatcher</code>(启动分发，处理最终去向)</th>
+<th><code>RtlDispatchException</code>（寻找谁能处理这个异常）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>作用</td>
+<td>接收系统交来的异常现场，安排分发及后续处理</td>
+<td>搜索 VEH、SEH，调用对应的处理器</td>
+</tr>
+<tr>
+<td>如何进入</td>
+<td>系统因异常安排线程进入</td>
+<td>分发入口通过 <code>call</code> 调用</td>
+</tr>
+<tr>
+<td>使用的数据</td>
+<td>系统准备的异常记录和上下文</td>
+<td>接收这两份数据的指针</td>
+</tr>
+<tr>
+<td>后续职责</td>
+<td>根据分发结果恢复执行或上报未处理异常</td>
+<td>找到处理器，执行异常搜索与处理逻辑</td>
+</tr>
+</tbody></table>
+<p>接下来对照第一部分的顺序：调试器 First Chance → VEH → 逐帧搜索 SEH；在本次线程入口的 SEH 过滤表达式中，进一步进入系统顶层 <code>UnhandledExceptionFilter</code>。</p>
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-6.png" class="">
+
+<p>分发器首先建立 <code>RtlDispatchException</code> 自己的栈帧：</p>
+<ol>
+<li>保存后续会使用的非易失寄存器。</li>
+<li>分配局部工作区。</li>
+<li>设置访问局部数据用的 <code>RBP</code>。</li>
+<li>保存并检查安全 cookie。</li>
+<li>保留输入的异常记录和上下文指针。</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>工作数据</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>DISPATCHER_CONTEXT</code></td>
+<td>描述当前正在检查的那个栈帧</td>
+</tr>
+<tr>
+<td>展开历史表</td>
+<td>缓存函数表查询结果，供后续查表使用</td>
+</tr>
+<tr>
+<td>栈上下界</td>
+<td>检查展开结果是否仍在合法栈范围内</td>
+</tr>
+<tr>
+<td>临时输出变量</td>
+<td>接收处理器地址、处理器数据、栈帧地址等</td>
+</tr>
+</tbody></table>
+<p>这里看到的 <code>push</code>、<code>sub rsp</code> 属于分发器自身的栈帧操作，并非已经实际展开 <code>main</code>。</p>
+<p>这些都相当于是初始化，接着才是查找</p>
+<p><strong>veh检查</strong></p>
+<p><code>RtlDispatchException</code>会调用<code>RtlpCallVectoredHandlers</code>来查询是否有<code>veh</code>的注册，<code>veh</code> 是通过 <code>AddVectoredExceptionHandler</code> 注册的向量异常处理器。</p>
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-7.png" class="">
+
+<p>本次进入这个内部函数后，可以看到经 <code>GS</code> 段读取进程信息。注意这并不是在读取 x86 的 <code>FS:[0]</code> SEH 链。</p>
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-8.png" class="">
+
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">mov rsi, qword ptr gs:[60h]  ; 获取 PEB</span><br><span class="line">...</span><br><span class="line">mov eax, dword ptr [rsi+50h]</span><br><span class="line">bt  eax, ebp                ; 本次 EBP=2，检查 bit 2</span><br><span class="line">jae ...                     ; bit 2 为 0，直接走返回路径</span><br></pre></td></tr></table></figure>
+
+<p>本次读到的值是：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">PEB.CrossProcessFlags = 1</span><br><span class="line">bit 2 = 0</span><br></pre></td></tr></table></figure>
+
+<p>在本次 Windows 构建和现场寄存器值下，bit 2 对应 <code>ProcessUsingVEH</code> 判断；本次为 0，因而直接走到返回路径。偏移和值都是当前观察证据，不应硬编码为跨 Windows 版本通用的流程。</p>
+<p><strong>seh遍历</strong></p>
+<p>接下来进入按栈帧搜索 SEH 的阶段。虽然演示程序没有在 <code>main</code> 中自行定义 <code>__try / __except</code>，Windows 的线程入口调用路径仍可能提供外层系统异常处理范围；因此不能说整个线程上没有 SEH。</p>
+<table>
+<thead>
+<tr>
+<th>时间点</th>
+<th>函数或操作</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>①</td>
+<td><code>RtlpCallVectoredHandlers</code> 返回后</td>
+<td>VEH 检查结束</td>
+</tr>
+<tr>
+<td>②</td>
+<td>首次对 <code>main</code> 调用 <code>RtlLookupFunctionEntry</code>，开始虚拟展开</td>
+<td>开始基于栈帧的 SEH 搜索</td>
+</tr>
+<tr>
+<td>③</td>
+<td><code>RtlpxVirtualUnwind</code> 返回 <code>__C_specific_handler</code> 地址</td>
+<td>找到系统线程入口的语言异常处理器</td>
+</tr>
+<tr>
+<td>④</td>
+<td><code>RtlpExecuteHandlerForException</code> 间接调用 <code>__C_specific_handler</code></td>
+<td>真正开始执行找到的 SEH 语言处理器</td>
+</tr>
+<tr>
+<td>⑤</td>
+<td><code>__C_specific_handler</code> 调用 <code>RtlUserThreadStart$filt$0</code></td>
+<td>执行 SEH 过滤表达式</td>
+</tr>
+<tr>
+<td>⑥</td>
+<td>过滤表达式调用 <code>UnhandledExceptionFilter</code></td>
+<td>进入系统顶层异常处理逻辑</td>
+</tr>
+<tr>
+<td>⑦</td>
+<td><code>UnhandledExceptionFilter</code> 调用 <code>MyException</code></td>
+<td>进入你自己注册的回调</td>
+</tr>
+</tbody></table>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line">SEH 搜索阶段</span><br><span class="line">    │</span><br><span class="line">    ├── 你自己编写的 SEH</span><br><span class="line">    │       │</span><br><span class="line">    │       ├── 已处理 → 不再进入顶层过滤器</span><br><span class="line">    │       │</span><br><span class="line">    │       └── CONTINUE_SEARCH</span><br><span class="line">    │                  ↓</span><br><span class="line">    ├── 其他外层 SEH</span><br><span class="line">    │       │</span><br><span class="line">    │       └── 仍未处理</span><br><span class="line">    │                  ↓</span><br><span class="line">    └── RtlUserThreadStart 的系统 SEH</span><br><span class="line">                 ↓</span><br><span class="line">        __C_specific_handler</span><br><span class="line">                 ↓</span><br><span class="line">        RtlUserThreadStart$filt$0</span><br><span class="line">                 ↓</span><br><span class="line">        UnhandledExceptionFilter</span><br><span class="line">                 ↓</span><br><span class="line">             MyException</span><br></pre></td></tr></table></figure>
+
+<p>这是seh的整体流程，在这里的就不展开了，而最重要的就是最后，在异常到达最终未处理路径时，RtlUserThreadStart 的系统 SEH调用其他函数执行注册的回调。整体则是，先沿着 SEH 搜索路径找到系统线程入口的异常过滤表达式，再由这个过滤表达式进入 <code>UnhandledExceptionFilter</code>，最后间接调用你注册的 <code>MyException</code></p>
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-9.png" class="">
+
+<p>虚拟展开：<code>main → BaseThreadInitThunk → RtlUserThreadStart</code>找到线程入口帧的语言异常处理器</p>
+<p>这一段的执行原理可以如下表示</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line">RtlpExecuteHandlerForException</span><br><span class="line">    │ 间接 call</span><br><span class="line">    ▼</span><br><span class="line">__C_specific_handler</span><br><span class="line">    │ 读取线程入口的作用域表</span><br><span class="line">    │ 找到覆盖当前 ControlPc 的记录</span><br><span class="line">    ▼</span><br><span class="line">RtlUserThreadStart$filt$0</span><br><span class="line">    │ call</span><br><span class="line">    ▼</span><br><span class="line">UnhandledExceptionFilter</span><br><span class="line">    │ 读取、解码注册的全局指针</span><br><span class="line">    │ 间接 call</span><br><span class="line">    ▼</span><br><span class="line">MyException</span><br><span class="line">    │ 返回 1</span><br><span class="line">    ▼</span><br><span class="line">结果逐层返回到 __C_specific_handler</span><br><span class="line">    │</span><br><span class="line">    │ 选择 except，调用 RtlUnwindEx</span><br><span class="line">    ▼</span><br><span class="line">实际展开 → RtlRestoreContext</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">RtlUserThreadStart 的 except 分支</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">NtTerminateProcess</span><br></pre></td></tr></table></figure>
+
+<p>而之前的<code>RtlDispatchException</code>：负责找到哪个栈帧有处理器</p>
+<p>这个demo的顺序是</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">main</span><br><span class="line">    没有语言异常处理器</span><br><span class="line">    ↓ 虚拟展开</span><br><span class="line">BaseThreadInitThunk</span><br><span class="line">    没有语言异常处理器</span><br><span class="line">    ↓ 虚拟展开</span><br><span class="line">RtlUserThreadStart</span><br><span class="line">    有语言异常处理器：__C_specific_handler</span><br></pre></td></tr></table></figure>
+
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-10.png" class="">
+
+<p>本次查看 <code>RtlUserThreadStart</code> 所在帧的展开元数据，能看到：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">UNW_FLAG_EHANDLER</span><br></pre></td></tr></table></figure>
+
+<p>展开器读出：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">LanguageHandler = 00007FFB35864670</span><br><span class="line">                = ntdll.__C_specific_handler</span><br></pre></td></tr></table></figure>
+
+
+<p><code>RtlpxVirtualUnwind</code> 本次通过相应输出参数提供语言处理器地址，随后包装调用路径进入 <code>__C_specific_handler</code>。注意这只是系统内置的语言异常处理器，不是我们自行定义的 <code>MyException</code>。</p>
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-11.png" class="">
+
+<p>到这里，分发器找到的是系统线程入口栈帧的语言异常处理器，还没有直接找到 <code>MyException</code>。它最终调用到 MyException接下来的工作分成不同层次：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">RtlDispatchException</span><br><span class="line">  └─ RtlpExecuteHandlerForException</span><br><span class="line">      └─ __C_specific_handler</span><br><span class="line">          └─ RtlUserThreadStart$filt$0</span><br><span class="line">              └─ UnhandledExceptionFilter</span><br><span class="line">                  └─ MyException</span><br></pre></td></tr></table></figure>
+
+<p>继续检查 <code>__C_specific_handler</code> 读取的作用域表，才能定位到本次线程入口的过滤表达式辅助函数 <code>RtlUserThreadStart$filt$0</code>。</p>
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-12.png" class="">
+
+<p>这里通过rax从数据中取得<code>RtlUserThreadStart$filt$0</code>地址</p>
+<p>可以用下面的概念代码理解它与线程入口的关系：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">// 不是 Windows 源码原文</span><br><span class="line">__try &#123;</span><br><span class="line">    调用线程启动代码();</span><br><span class="line">&#125;</span><br><span class="line">__except (线程入口过滤器(GetExceptionInformation())) &#123;</span><br><span class="line">    终止进程();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>本次这个过滤器进一步调用：<code>KERNELBASE.UnhandledExceptionFilter</code></p>
+<p>因此，它相当于一个重要的连接点，将我们基于栈帧的 SEH，转到了进程级顶层异常处理策略<code>UnhandledExceptionFilter</code></p>
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-13.png" class="">
+
+<p>本次还观察到间接调用经过 CFG 相关跳板（例如 <code>ntdll!_guard_dispatch_icall$thunk</code>）。CFG 是间接控制流保护机制，不应把跳板理解成额外注册了一层 SEH；跟随它可以看到最终到达 <code>KERNELBASE!UnhandledExceptionFilter</code>。</p>
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-14.png" class="">
+
+<p>在这之中执行很多操作之后，最后来到了这里进行跳转调用</p>
+<p>!<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-15.png" class=""></p>
+<p>跳转之后就是</p>
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-16.png" class="">
+
+<p>直到这里，我们的<code>MyException</code>才被真正调用，而当我们的这个异常过滤器的返回值为1的时候，代表<code>EXCEPTION_EXECUTE_HANDLER</code></p>
+<p>并且这个值通过<code>UnhandledExceptionFilter</code>回传到<code>__C_specific_handler</code> ，然后根据返回值选择转入对应的 <code>__except</code></p>
+<img src="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/set-17.png" class="">
+
+<p>这里实际调用了 <code>RtlUnwindEx</code> 进行展开，随后经过 <code>RtlRestoreContext</code> 恢复面向处理目标的上下文，最终在本次 <code>RtlUserThreadStart</code> 的 <code>__except</code> 路径上看到 <code>NtTerminateProcess</code> 并终止进程。<strong>真正选中的异常处理块属于外层线程入口，而不是 <code>MyException</code> 的函数体</strong>。参数值及出口实现以该次调试记录为准。</p>
+<table>
+<thead>
+<tr>
+<th>角色</th>
+<th>例子</th>
+<th>负责什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>异常分发器</td>
+<td><code>RtlDispatchException</code></td>
+<td>寻找当前调用栈上能够处理异常的位置</td>
+</tr>
+<tr>
+<td>异常语言处理器</td>
+<td><code>__C_specific_handler</code></td>
+<td>解释当前函数的异常处理规则</td>
+</tr>
+<tr>
+<td>异常过滤器</td>
+<td><code>MyException</code>、<code>MyFilter</code></td>
+<td>判断具体异常应该如何处理</td>
+</tr>
+</tbody></table>
+<p>简而言之：异常分发器负责找到哪一层函数，语言处理器负责解释这一层函数的 SEH 规则，过滤器负责作出处理决定。</p>
+<p>这个的调用整体如下</p>
+<table>
+<thead>
+<tr>
+<th>函数</th>
+<th>所属阶段</th>
+<th>具体作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>RtlpExecuteHandlerForException</code></td>
+<td>搜索阶段</td>
+<td>调用当前栈帧关联的语言异常处理器</td>
+</tr>
+<tr>
+<td><code>__C_specific_handler</code></td>
+<td>搜索阶段</td>
+<td>检查作用域表，匹配异常发生位置</td>
+</tr>
+<tr>
+<td><code>RtlUserThreadStart$filt$0</code></td>
+<td>搜索阶段</td>
+<td>执行线程启动函数的异常过滤表达式</td>
+</tr>
+<tr>
+<td><code>UnhandledExceptionFilter</code></td>
+<td>搜索阶段</td>
+<td>判断未处理异常的处理方式，并可能调用用户注册的顶层过滤器</td>
+</tr>
+<tr>
+<td><code>MyException</code></td>
+<td>搜索阶段</td>
+<td>用户自定义过滤回调，返回是否接受异常</td>
+</tr>
+<tr>
+<td><code>__C_specific_handler</code> 再次获得过滤结果</td>
+<td>作出处理决定</td>
+<td>根据返回值 1，决定转入对应的 <code>__except</code></td>
+</tr>
+<tr>
+<td><code>RtlUnwindEx</code></td>
+<td>栈展开阶段</td>
+<td>展开不再继续执行的栈帧，运行必要的清理逻辑</td>
+</tr>
+<tr>
+<td><code>RtlRestoreContext</code></td>
+<td>恢复执行上下文</td>
+<td>将 CPU 上下文恢复为异常处理目标位置所需的状态</td>
+</tr>
+<tr>
+<td><code>RtlUserThreadStart</code> 的 <code>__except</code> 分支</td>
+<td>实际处理阶段</td>
+<td>真正执行选中的异常处理代码</td>
+</tr>
+<tr>
+<td><code>NtTerminateProcess</code></td>
+<td>终止阶段</td>
+<td>终止进程，并非恢复发生异常的代码</td>
+</tr>
+</tbody></table>
+<p>到这里就能解释：为什么返回 <code>EXCEPTION_EXECUTE_HANDLER</code> 的顶层过滤器在这次 demo 中最终对应进程退出——因为外层线程入口的处理块选择了终止流程。注意：不同返回值协议的具体对应关系已经在第一部分第 12 节解释，下面结合本次调用链再对照一次。</p>
+<table>
+<thead>
+<tr>
+<th>数值</th>
+<th>过滤器返回 <code>LONG</code></th>
+<th>底层处理器返回 <code>EXCEPTION_DISPOSITION</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>-1</code></td>
+<td><code>EXCEPTION_CONTINUE_EXECUTION</code></td>
+<td>无对应的标准枚举项</td>
+</tr>
+<tr>
+<td><code>0</code></td>
+<td><code>EXCEPTION_CONTINUE_SEARCH</code></td>
+<td><code>ExceptionContinueExecution</code></td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td><code>EXCEPTION_EXECUTE_HANDLER</code></td>
+<td><code>ExceptionContinueSearch</code></td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td>无对应值</td>
+<td><code>ExceptionNestedException</code></td>
+</tr>
+<tr>
+<td><code>3</code></td>
+<td>无对应值</td>
+<td><code>ExceptionCollidedUnwind</code></td>
+</tr>
+</tbody></table>
+<h4 id="第一套：过滤器返回-LONG"><a href="#第一套：过滤器返回-LONG" class="headerlink" title="第一套：过滤器返回 LONG"></a>第一套：过滤器返回 LONG</h4><p>你这条调用链中的：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">MyException</span><br><span class="line">UnhandledExceptionFilter</span><br><span class="line">RtlUserThreadStart$filt$0</span><br></pre></td></tr></table></figure>
+
+<p>使用的是这一套：</p>
+<table>
+<thead>
+<tr>
+<th>数值</th>
+<th>常量</th>
+<th>意义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>-1</code></td>
+<td><code>EXCEPTION_CONTINUE_EXECUTION</code></td>
+<td>请求恢复执行</td>
+</tr>
+<tr>
+<td><code>0</code></td>
+<td><code>EXCEPTION_CONTINUE_SEARCH</code></td>
+<td>不处理，继续处理流程</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td><code>EXCEPTION_EXECUTE_HANDLER</code></td>
+<td>选择关联的 except 分支</td>
+</tr>
+</tbody></table>
+<p>因此，本次汇编演示的：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">; MyException</span><br><span class="line">mov eax,1</span><br><span class="line">ret</span><br></pre></td></tr></table></figure>
+
+<p>返回的是 <strong>第一套的 <code>EXCEPTION_EXECUTE_HANDLER</code></strong>。</p>
+<h4 id="第二套：语言异常处理器返回-EXCEPTION-DISPOSITION"><a href="#第二套：语言异常处理器返回-EXCEPTION-DISPOSITION" class="headerlink" title="第二套：语言异常处理器返回 EXCEPTION_DISPOSITION"></a>第二套：语言异常处理器返回 EXCEPTION_DISPOSITION</h4><p>你这条链中的：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">__C_specific_handler</span><br></pre></td></tr></table></figure>
+
+<p>使用这一套，返回给 <code>RtlDispatchException</code>：</p>
+<table>
+<thead>
+<tr>
+<th>数值</th>
+<th>枚举项</th>
+<th>意义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>0</code></td>
+<td><code>ExceptionContinueExecution</code></td>
+<td>要求恢复执行</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td><code>ExceptionContinueSearch</code></td>
+<td>继续搜索外层栈帧</td>
+</tr>
+<tr>
+<td><code>2</code></td>
+<td><code>ExceptionNestedException</code></td>
+<td>协调嵌套异常搜索</td>
+</tr>
+<tr>
+<td><code>3</code></td>
+<td><code>ExceptionCollidedUnwind</code></td>
+<td>协调展开期间的控制流变化</td>
+</tr>
+</tbody></table>
+<h4 id="两套结果在本次程序中如何联系？"><a href="#两套结果在本次程序中如何联系？" class="headerlink" title="两套结果在本次程序中如何联系？"></a>两套结果在本次程序中如何联系？</h4><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">RtlDispatchException</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">__C_specific_handler          ← 向分发器返回第二套</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">RtlUserThreadStart$filt$0     ← 返回第一套</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">UnhandledExceptionFilter     ← 返回第一套</span><br><span class="line">    │</span><br><span class="line">    ▼</span><br><span class="line">MyException                  ← 返回第一套</span><br></pre></td></tr></table></figure>
+
+<p><code>__C_specific_handler</code> 负责解释过滤器结果：</p>
+<table>
+<thead>
+<tr>
+<th>第一套：过滤器结果</th>
+<th><code>__C_specific_handler</code> 的动作</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>-1</code>：继续执行</td>
+<td>返回第二套的 <code>0</code>：<code>ExceptionContinueExecution</code></td>
+</tr>
+<tr>
+<td><code>0</code>：继续搜索</td>
+<td>检查其他作用域；若无人处理，返回第二套的 <code>1</code>：<code>ExceptionContinueSearch</code></td>
+</tr>
+<tr>
+<td><code>1</code>：执行 except</td>
+<td>调用 <code>RtlUnwindEx</code>，转入选中的 except；你这次不再正常返回给分发器</td>
+</tr>
+</tbody></table>
+<h3 id="2-为什么-x64dbg-中可能无法进入回调？"><a href="#2-为什么-x64dbg-中可能无法进入回调？" class="headerlink" title="2. 为什么 x64dbg 中可能无法进入回调？"></a>2. 为什么 x64dbg 中可能无法进入回调？</h3><p>因为 <code>SetUnhandledExceptionFilter</code> 的正常回调调用条件包含进程未被调试。</p>
+<p>用 x64dbg 启动程序时，调试器会先接到异常事件；即使选择不处理首次机会异常，也不能保证顶层筛选器会像未调试时一样执行。</p>
+<p>建议首先直接运行 EXE，确认注册与恢复行为，然后再用调试器观察访问违规的位置、异常代码以及寄存器值。</p>
+<h3 id="3-常见问题总结"><a href="#3-常见问题总结" class="headerlink" title="3. 常见问题总结"></a>3. 常见问题总结</h3><p><strong>为什么会重复进入异常回调？</strong></p>
+<p>通常是返回了 <code>EXCEPTION_CONTINUE_EXECUTION</code>，但导致异常的条件并未真正消除。</p>
+<p><strong>为什么之前注册的回调不再执行？</strong></p>
+<p>可能是调用了新的 <code>SetUnhandledExceptionFilter</code>，替换了之前的设置。</p>
+<p><strong>为什么修改了回调内部的 EAX，却没有修复原程序？</strong></p>
+<p>因为回调运行时的 EAX 与保存于 <code>CONTEXT</code> 的 EAX 是两个概念。要修改的是用于恢复故障线程的寄存器上下文。</p>
+<p><strong>为什么有些崩溃没有进入回调？</strong></p>
+<p>可能是异常已被其他处理程序接管、进程被调试、发生快速失败、栈已损坏，或程序根本没有走到顶层处理路径。</p>
+<h2 id="结语"><a href="#结语" class="headerlink" title="结语"></a>结语</h2><p>Windows 异常处理的重点不是“程序报错后立即结束”，而是操作系统提供了一套从异常检测、保存上下文、处理程序查找，到恢复执行和最终崩溃收尾的机制。</p>
+<p><code>SetUnhandledExceptionFilter</code> 位于其中的顶层未处理异常阶段。开发者可以利用它检查异常原因、读取异常现场，或者在非常明确的条件下修改保存的上下文尝试恢复执行。</p>
+<p>学习它时，最重要的是理解三者的关系：</p>
+<p><strong>EXCEPTION_RECORD 描述发生了什么错误；CONTEXT 保存发生错误时的寄存器现场；筛选回调的返回值决定 Windows 下一步应该怎样处理。</strong></p>
+<p>对于逆向分析而言，理解这三者，就能够进一步分析通过异常改变控制流的 CTF 程序，以及 Windows 调试器中的异常分发行为。</p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><ul>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/errhandlingapi/nf-errhandlingapi-setunhandledexceptionfilter">Microsoft — SetUnhandledExceptionFilter</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/errhandlingapi/nf-errhandlingapi-unhandledexceptionfilter">Microsoft — UnhandledExceptionFilter</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/debug/debugger-exception-handling">Microsoft — Debugger Exception Handling</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-exception_pointers">Microsoft — EXCEPTION_POINTERS</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-exception_record">Microsoft — EXCEPTION_RECORD</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-context">Microsoft — CONTEXT x64</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/nf-minidumpapiset-minidumpwritedump">Microsoft — MiniDumpWriteDump</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/cpp/build/exception-handling-x64">Microsoft — x64 Exception Handling</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/winnt/nf-winnt-rtlvirtualunwind">Microsoft — RtlVirtualUnwind</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/winnt/nf-winnt-rtlunwindex">Microsoft — RtlUnwindEx</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/cpp/cpp/try-except-statement">Microsoft — try-except statement</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/debug/vectored-exception-handling">Microsoft — Vectored Exception Handling</a></li>
+<li><a target="_blank" rel="noopener" href="https://help.x64dbg.com/en/latest/commands/debug-control/erun.html">x64dbg — erun&#x2F;ego</a></li>
+<li><a target="_blank" rel="noopener" href="https://help.x64dbg.com/en/latest/commands/debug-control/serun.html">x64dbg — serun&#x2F;sego</a></li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://levi-5002.github.io">levi2005</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://levi-5002.github.io/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/">https://levi-5002.github.io/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://levi-5002.github.io" target="_blank">levi2005's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/%E5%BC%82%E5%B8%B8/">异常</a><a class="post-meta__tags" href="/tags/windows/">windows</a><a class="post-meta__tags" href="/tags/%E8%B0%83%E8%AF%95/">调试</a><a class="post-meta__tags" href="/tags/%E5%8F%8D%E8%B0%83%E8%AF%95/">反调试</a><a class="post-meta__tags" href="/tags/x64dbg/">x64dbg</a></div><div class="post-share"><div class="social-share" data-image="/img/debug/setunhandled-cover.jpg" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width" href="/2026/10/10/windows%E5%8F%8D%E8%B0%83%E8%AF%95%E4%BB%8B%E7%BB%8D/" title="windows反调试介绍"><img class="cover" src="/img/debug/fts-cover.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">windows反调试介绍</div></div><div class="info-2"><div class="info-item-1">Windows 反调试技术全解析：26 种检测机制、底层原理与逆向反反调试反调试（Anti-Debugging）是 Windows 软件保护、逆向工程、CTF Reverse 和恶意代码分析中的重要技术。其目的并不局限于发现调试器是否存在，还包括识别分析环境、检测程序是否被单步跟踪、阻止调试事件正常传递，以及发现程序代码在调试过程中发生的修改。 从最简单的 IsDebuggerPresent() 到涉及 Windows Native API、PEB、内核调试对象、异常分发、CPU 调试寄存器和 TLS Callback 的底层机制，反调试技术虽然实现方式各不相同，但大多数都围绕一个核心过程展开： 获取调试相关信息，判断运行环境是否符合预期，并根据判断结果改变程序的正常执行流程。 反反调试（Anti-Anti-Debugging）则是从逆向分析角度还原上述过程，识别检测依据、数据来源和控制流，在理解程序真实逻辑的基础上排除调试障碍。 本文系统梳理 Windows 平台上 26 项常见反调试技术，按照系统调试状态、运行环境、时间行为、内存与堆、异常机制、线程上下文以及程序完整性等不同...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2026/10/10/windows%E5%8F%8D%E8%B0%83%E8%AF%95%E4%BB%8B%E7%BB%8D/" title="windows反调试介绍"><img class="cover" src="/img/debug/fts-cover.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-10-10</div><div class="info-item-2">windows反调试介绍</div></div><div class="info-2"><div class="info-item-1">Windows 反调试技术全解析：26 种检测机制、底层原理与逆向反反调试反调试（Anti-Debugging）是 Windows 软件保护、逆向工程、CTF Reverse 和恶意代码分析中的重要技术。其目的并不局限于发现调试器是否存在，还包括识别分析环境、检测程序是否被单步跟踪、阻止调试事件正常传递，以及发现程序代码在调试过程中发生的修改。 从最简单的 IsDebuggerPresent() 到涉及 Windows Native API、PEB、内核调试对象、异常分发、CPU 调试寄存器和 TLS Callback 的底层机制，反调试技术虽然实现方式各不相同，但大多数都围绕一个核心过程展开： 获取调试相关信息，判断运行环境是否符合预期，并根据判断结果改变程序的正常执行流程。 反反调试（Anti-Anti-Debugging）则是从逆向分析角度还原上述过程，识别检测依据、数据来源和控制流，在理解程序真实逻辑的基础上排除调试障碍。 本文系统梳理 Windows 平台上 26 项常见反调试技术，按照系统调试状态、运行环境、时间行为、内存与堆、异常机制、线程上下文以及程序完整性等不同...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/levi.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">levi2005</div><div class="author-info-description">一个神人的博客</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">10</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">22</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">6</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/levi-5002"><i class="fab fa-github"></i><span>Follow Me</span></a></div><div class="card-widget card-search" id="search-button"><button class="search" type="button"><i class="fas fa-search fa-fw" aria-hidden="true"></i><span>搜索</span></button></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">For the emperor</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#Windows-%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E6%9C%BA%E5%88%B6%E8%AF%A6%E8%A7%A3%EF%BC%9ASetUnhandledExceptionFilter-%E4%BB%8E%E5%86%85%E6%A0%B8%E5%BC%82%E5%B8%B8%E5%88%86%E5%8F%91%E5%88%B0%E7%A8%8B%E5%BA%8F%E7%BB%88%E6%AD%A2%E4%B8%8Ex64dbg%E6%89%8B%E5%8A%A8%E5%AE%9E%E9%AA%8C"><span class="toc-number">1.</span> <span class="toc-text">Windows 异常处理机制详解：SetUnhandledExceptionFilter 从内核异常分发到程序终止与x64dbg手动实验</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81Windows-%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E6%9C%BA%E5%88%B6%E4%B8%8E%E6%A0%B8%E5%BF%83%E5%8E%9F%E7%90%86"><span class="toc-number">1.1.</span> <span class="toc-text">一、Windows 异常处理机制与核心原理</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-%E5%BC%82%E5%B8%B8%E4%B8%8E%E7%A8%8B%E5%BA%8F%E5%B4%A9%E6%BA%83"><span class="toc-number">1.1.1.</span> <span class="toc-text">1. 异常与程序崩溃</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-%E5%BC%82%E5%B8%B8%E4%BB%8E-CPU-%E5%88%B0%E7%94%A8%E6%88%B7%E6%80%81%E7%9A%84%E5%88%86%E5%8F%91%E8%BF%87%E7%A8%8B"><span class="toc-number">1.1.2.</span> <span class="toc-text">2. 异常从 CPU 到用户态的分发过程</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#%E8%B0%83%E8%AF%95%E5%99%A8%E7%9A%84-First-Chance-%E4%B8%8E-Second-Chance"><span class="toc-number">1.1.2.1.</span> <span class="toc-text">调试器的 First Chance 与 Second Chance</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-VEH%E3%80%81SEH-%E4%B8%8E%E9%A1%B6%E5%B1%82%E6%9C%AA%E5%A4%84%E7%90%86%E5%BC%82%E5%B8%B8%E7%AD%9B%E9%80%89%E5%99%A8"><span class="toc-number">1.1.3.</span> <span class="toc-text">3. VEH、SEH 与顶层未处理异常筛选器</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-Windows-x64-%E7%9A%84%E8%A1%A8%E9%A9%B1%E5%8A%A8-SEH%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81-pdata-%E4%B8%8E-xdata%EF%BC%9F"><span class="toc-number">1.1.4.</span> <span class="toc-text">4. Windows x64 的表驱动 SEH：为什么需要 .pdata 与 .xdata？</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#4-1-x86-%E9%93%BE%E8%A1%A8%E5%BC%8F-SEH-%E4%B8%8E-x64-%E8%A1%A8%E9%A9%B1%E5%8A%A8-SEH-%E7%9A%84%E5%8C%BA%E5%88%AB"><span class="toc-number">1.1.4.1.</span> <span class="toc-text">4.1 x86 链表式 SEH 与 x64 表驱动 SEH 的区别</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#4-2-pdata%E3%80%81RUNTIME-FUNCTION-%E5%92%8C-xdata-%E7%9A%84%E5%85%B3%E7%B3%BB"><span class="toc-number">1.1.4.2.</span> <span class="toc-text">4.2 .pdata、RUNTIME_FUNCTION 和 .xdata 的关系</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#4-3-RtlLookupFunctionEntry-%E4%B8%8E-RtlVirtualUnwind-%E5%90%84%E5%81%9A%E4%BB%80%E4%B9%88%EF%BC%9F"><span class="toc-number">1.1.4.3.</span> <span class="toc-text">4.3 RtlLookupFunctionEntry 与 RtlVirtualUnwind 各做什么？</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-%E4%BB%8E-RtlDispatchException-%E5%88%B0-C-specific-handler%EF%BC%9A%E8%B0%81%E7%9C%9F%E6%AD%A3%E5%88%A4%E6%96%AD%E5%BC%82%E5%B8%B8%EF%BC%9F"><span class="toc-number">1.1.5.</span> <span class="toc-text">5. 从 RtlDispatchException 到 __C_specific_handler：谁真正判断异常？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-%E4%B8%BA%E4%BB%80%E4%B9%88%E5%BC%82%E5%B8%B8%E4%BC%9A%E6%9F%A5%E6%89%BE%E5%88%B0-RtlUserThreadStart%EF%BC%9F%E5%AE%83%E6%98%AF%E4%B8%8D%E6%98%AF%E6%96%B0%E7%BA%BF%E7%A8%8B%EF%BC%9F"><span class="toc-number">1.1.6.</span> <span class="toc-text">6. 为什么异常会查找到 RtlUserThreadStart？它是不是新线程？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-%E8%99%9A%E6%8B%9F%E5%B1%95%E5%BC%80%E4%B8%8E%E7%9C%9F%E5%AE%9E%E6%A0%88%E5%B1%95%E5%BC%80%EF%BC%9A%E6%90%9C%E7%B4%A2%E9%98%B6%E6%AE%B5%E4%B8%BA%E4%BB%80%E4%B9%88%E8%BF%98%E6%B2%A1%E6%9C%89%E6%89%A7%E8%A1%8C-except%EF%BC%9F"><span class="toc-number">1.1.7.</span> <span class="toc-text">7. 虚拟展开与真实栈展开：搜索阶段为什么还没有执行 __except？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#8-SetUnhandledExceptionFilter-API-%E8%AF%A6%E8%A7%A3"><span class="toc-number">1.1.8.</span> <span class="toc-text">8. SetUnhandledExceptionFilter API 详解</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#1-%E5%87%BD%E6%95%B0%E5%8E%9F%E5%9E%8B"><span class="toc-number">1.1.8.1.</span> <span class="toc-text">1. 函数原型</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-%E6%B3%A8%E5%86%8C%E5%9B%9E%E8%B0%83%E5%87%BD%E6%95%B0"><span class="toc-number">1.1.8.2.</span> <span class="toc-text">2. 注册回调函数</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#3-%E8%BF%94%E5%9B%9E%E5%80%BC"><span class="toc-number">1.1.8.3.</span> <span class="toc-text">3. 返回值</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#4-%E5%B7%B2%E6%B3%A8%E5%86%8C%E5%9B%9E%E8%B0%83%E7%9A%84%E4%BF%9D%E5%AD%98%E3%80%81%E6%8C%87%E9%92%88%E7%BC%96%E7%A0%81%E4%B8%8E%E8%B7%B3%E6%9D%BF%E5%87%BD%E6%95%B0"><span class="toc-number">1.1.8.4.</span> <span class="toc-text">4. 已注册回调的保存、指针编码与跳板函数</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#5-NULL-%E8%BF%94%E5%9B%9E%E5%80%BC%E4%B8%8D%E7%AD%89%E4%BA%8E%E6%B3%A8%E5%86%8C%E5%A4%B1%E8%B4%A5"><span class="toc-number">1.1.8.5.</span> <span class="toc-text">5. NULL 返回值不等于注册失败</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#6-%E4%B8%BA%E4%BD%95%E8%B0%83%E8%AF%95%E5%99%A8%E4%B8%AD%E6%B3%A8%E5%86%8C%E4%BA%86%E5%9B%9E%E8%B0%83%E5%8D%B4%E5%8F%AF%E8%83%BD%E4%B8%8D%E8%BF%9B%E5%85%A5%EF%BC%9F"><span class="toc-number">1.1.8.6.</span> <span class="toc-text">6. 为何调试器中注册了回调却可能不进入？</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#9-EXCEPTION-POINTERS%EF%BC%9A%E5%BC%82%E5%B8%B8%E8%AE%B0%E5%BD%95%E4%B8%8E%E7%BA%BF%E7%A8%8B%E7%8E%B0%E5%9C%BA"><span class="toc-number">1.1.9.</span> <span class="toc-text">9. EXCEPTION_POINTERS：异常记录与线程现场</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#10-EXCEPTION-RECORD%EF%BC%9A%E5%BC%82%E5%B8%B8%E7%B1%BB%E5%9E%8B%E4%B8%8E%E8%AE%BF%E9%97%AE%E4%BD%8D%E7%BD%AE"><span class="toc-number">1.1.10.</span> <span class="toc-text">10. EXCEPTION_RECORD：异常类型与访问位置</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#1-ExceptionCode"><span class="toc-number">1.1.10.1.</span> <span class="toc-text">1. ExceptionCode</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-ExceptionFlags"><span class="toc-number">1.1.10.2.</span> <span class="toc-text">2. ExceptionFlags</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#3-ExceptionRecord"><span class="toc-number">1.1.10.3.</span> <span class="toc-text">3. ExceptionRecord</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#4-ExceptionAddress"><span class="toc-number">1.1.10.4.</span> <span class="toc-text">4. ExceptionAddress</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#5-ExceptionInformation"><span class="toc-number">1.1.10.5.</span> <span class="toc-text">5. ExceptionInformation</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#11-CONTEXT%EF%BC%9A%E5%BC%82%E5%B8%B8%E7%8E%B0%E5%9C%BA%E4%B8%8E%E6%81%A2%E5%A4%8D%E6%89%A7%E8%A1%8C"><span class="toc-number">1.1.11.</span> <span class="toc-text">11. CONTEXT：异常现场与恢复执行</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#12-%E5%BC%82%E5%B8%B8%E8%BF%94%E5%9B%9E%E5%80%BC%EF%BC%9ALONG-%E4%B8%8E-EXCEPTION-DISPOSITION-%E4%B8%8D%E8%83%BD%E6%B7%B7%E6%B7%86"><span class="toc-number">1.1.12.</span> <span class="toc-text">12. 异常返回值：LONG 与 EXCEPTION_DISPOSITION 不能混淆</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#1-%E8%BF%87%E6%BB%A4%E8%A1%A8%E8%BE%BE%E5%BC%8F%E8%BF%94%E5%9B%9E-LONG%EF%BC%9A-1-0-1"><span class="toc-number">1.1.12.1.</span> <span class="toc-text">1. 过滤表达式返回 LONG：-1 &#x2F; 0 &#x2F; 1</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-%E8%AF%AD%E8%A8%80%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E5%99%A8%E8%BF%94%E5%9B%9E-EXCEPTION-DISPOSITION%EF%BC%9A0-1-2-3"><span class="toc-number">1.1.12.2.</span> <span class="toc-text">2. 语言异常处理器返回 EXCEPTION_DISPOSITION：0 &#x2F; 1 &#x2F; 2 &#x2F; 3</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#3-%E4%B8%A4%E5%A5%97%E8%BF%94%E5%9B%9E%E5%80%BC%E5%A6%82%E4%BD%95%E8%81%94%E7%B3%BB%EF%BC%9F"><span class="toc-number">1.1.12.3.</span> <span class="toc-text">3. 两套返回值如何联系？</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#13-%E5%85%B6%E4%BB%96%E7%9B%B8%E5%85%B3%E7%9A%84-Win32-API"><span class="toc-number">1.1.13.</span> <span class="toc-text">13. 其他相关的 Win32 API</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#14-%E5%BC%82%E5%B8%B8%E6%9C%AA%E5%A4%84%E7%90%86%E6%97%B6%E7%9A%84%E7%BB%93%E6%9E%9C%E4%B8%8E%E8%BF%9B%E7%A8%8B%E7%BB%88%E6%AD%A2"><span class="toc-number">1.1.14.</span> <span class="toc-text">14. 异常未处理时的结果与进程终止</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#15-%E5%B0%86%E7%90%86%E8%AE%BA%E5%AF%B9%E5%BA%94%E5%88%B0-x64dbg%EF%BC%9A%E5%A6%82%E4%BD%95%E8%A7%82%E5%AF%9F%E8%80%8C%E4%B8%8D%E8%AF%AF%E5%88%A4%EF%BC%9F"><span class="toc-number">1.1.15.</span> <span class="toc-text">15. 将理论对应到 x64dbg：如何观察而不误判？</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#erun-%E4%B8%8E-serun-%E7%9A%84%E5%AE%9E%E9%99%85%E5%8C%BA%E5%88%AB"><span class="toc-number">1.1.15.1.</span> <span class="toc-text">erun 与 serun 的实际区别</span></a></li></ol></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%8164-%E4%BD%8D%E6%B1%87%E7%BC%96%E5%AE%9E%E9%AA%8C%EF%BC%9A%E6%8D%95%E8%8E%B7%E5%B9%B6%E6%98%BE%E7%A4%BA%E8%AE%BF%E9%97%AE%E8%BF%9D%E8%A7%84%E5%BC%82%E5%B8%B8"><span class="toc-number">1.2.</span> <span class="toc-text">二、64 位汇编实验：捕获并显示访问违规异常</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-%E5%AE%9E%E9%AA%8C%E4%BB%8B%E7%BB%8D"><span class="toc-number">1.2.1.</span> <span class="toc-text">1. 实验介绍</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#1-%E5%AE%9E%E9%AA%8C%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B"><span class="toc-number">1.2.1.1.</span> <span class="toc-text">1. 实验执行流程</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-%E5%AE%8C%E6%95%B4%E6%B1%87%E7%BC%96%E4%BB%A3%E7%A0%81"><span class="toc-number">1.2.1.2.</span> <span class="toc-text">2. 完整汇编代码</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#3-%E7%BC%96%E8%AF%91%E5%91%BD%E4%BB%A4"><span class="toc-number">1.2.1.3.</span> <span class="toc-text">3. 编译命令</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#4-%E9%A2%84%E6%9C%9F%E5%AE%9E%E9%AA%8C%E7%BB%93%E6%9E%9C"><span class="toc-number">1.2.1.4.</span> <span class="toc-text">4. 预期实验结果</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-ML64-%E6%B1%87%E7%BC%96%E8%AF%AD%E6%B3%95%E9%87%8D%E7%82%B9"><span class="toc-number">1.2.2.</span> <span class="toc-text">2. ML64 汇编语法重点</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#1-%E5%A4%96%E9%83%A8%E5%87%BD%E6%95%B0%E5%A3%B0%E6%98%8E"><span class="toc-number">1.2.2.1.</span> <span class="toc-text">1. 外部函数声明</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#2-64-%E4%BD%8D%E5%87%BD%E6%95%B0%E5%AE%9A%E4%B9%89"><span class="toc-number">1.2.2.2.</span> <span class="toc-text">2. 64 位函数定义</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#3-Windows-x64-%E5%8F%82%E6%95%B0%E4%BC%A0%E9%80%92"><span class="toc-number">1.2.2.3.</span> <span class="toc-text">3. Windows x64 参数传递</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#4-EXCEPTION-POINTERS-%E7%9A%84%E6%8C%87%E9%92%88%E5%85%B3%E7%B3%BB"><span class="toc-number">1.2.2.4.</span> <span class="toc-text">4. EXCEPTION_POINTERS 的指针关系</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#5-RAX-%E5%92%8C-EAX-%E7%9A%84%E5%8C%BA%E5%88%AB"><span class="toc-number">1.2.2.5.</span> <span class="toc-text">5. RAX 和 EAX 的区别</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#6-%E5%BC%82%E5%B8%B8%E5%9B%9E%E8%B0%83%E8%BF%94%E5%9B%9E%E5%80%BC"><span class="toc-number">1.2.2.6.</span> <span class="toc-text">6. 异常回调返回值</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#7-%E6%B3%A8%E6%84%8F%E6%B3%A8%E5%86%8C%E5%87%BD%E6%95%B0%E8%BF%94%E5%9B%9E%E5%80%BC"><span class="toc-number">1.2.2.7.</span> <span class="toc-text">7. 注意注册函数返回值</span></a></li></ol></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81x64dbg-%E5%AE%9E%E6%88%98%E8%B0%83%E8%AF%95"><span class="toc-number">1.3.</span> <span class="toc-text">三、x64dbg 实战调试</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-%E8%B0%83%E8%AF%95%E7%8E%AF%E5%A2%83%E4%B8%8E%E5%BC%82%E5%B8%B8%E8%A7%A6%E5%8F%91"><span class="toc-number">1.3.1.</span> <span class="toc-text">1. 调试环境与异常触发</span></a><ol class="toc-child"><li class="toc-item toc-level-4"><a class="toc-link" href="#%E7%AC%AC%E4%B8%80%E5%A5%97%EF%BC%9A%E8%BF%87%E6%BB%A4%E5%99%A8%E8%BF%94%E5%9B%9E-LONG"><span class="toc-number">1.3.1.1.</span> <span class="toc-text">第一套：过滤器返回 LONG</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#%E7%AC%AC%E4%BA%8C%E5%A5%97%EF%BC%9A%E8%AF%AD%E8%A8%80%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E5%99%A8%E8%BF%94%E5%9B%9E-EXCEPTION-DISPOSITION"><span class="toc-number">1.3.1.2.</span> <span class="toc-text">第二套：语言异常处理器返回 EXCEPTION_DISPOSITION</span></a></li><li class="toc-item toc-level-4"><a class="toc-link" href="#%E4%B8%A4%E5%A5%97%E7%BB%93%E6%9E%9C%E5%9C%A8%E6%9C%AC%E6%AC%A1%E7%A8%8B%E5%BA%8F%E4%B8%AD%E5%A6%82%E4%BD%95%E8%81%94%E7%B3%BB%EF%BC%9F"><span class="toc-number">1.3.1.3.</span> <span class="toc-text">两套结果在本次程序中如何联系？</span></a></li></ol></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-%E4%B8%BA%E4%BB%80%E4%B9%88-x64dbg-%E4%B8%AD%E5%8F%AF%E8%83%BD%E6%97%A0%E6%B3%95%E8%BF%9B%E5%85%A5%E5%9B%9E%E8%B0%83%EF%BC%9F"><span class="toc-number">1.3.2.</span> <span class="toc-text">2. 为什么 x64dbg 中可能无法进入回调？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E6%80%BB%E7%BB%93"><span class="toc-number">1.3.3.</span> <span class="toc-text">3. 常见问题总结</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%BB%93%E8%AF%AD"><span class="toc-number">1.4.</span> <span class="toc-text">结语</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">1.5.</span> <span class="toc-text">参考资料</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/" title="windows异常处理之SetUnhandledExceptionFilter"><img src="/img/debug/setunhandled-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="windows异常处理之SetUnhandledExceptionFilter"/></a><div class="content"><a class="title" href="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/" title="windows异常处理之SetUnhandledExceptionFilter">windows异常处理之SetUnhandledExceptionFilter</a><time datetime="2026-10-12T11:17:14.000Z" title="发表于 2026-10-12 19:17:14">2026-10-12</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/10/10/windows%E5%8F%8D%E8%B0%83%E8%AF%95%E4%BB%8B%E7%BB%8D/" title="windows反调试介绍"><img src="/img/debug/fts-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="windows反调试介绍"/></a><div class="content"><a class="title" href="/2026/10/10/windows%E5%8F%8D%E8%B0%83%E8%AF%95%E4%BB%8B%E7%BB%8D/" title="windows反调试介绍">windows反调试介绍</a><time datetime="2026-10-10T02:59:05.000Z" title="发表于 2026-10-10 10:59:05">2026-10-10</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/09/11/SSRF%E6%BC%8F%E6%B4%9E/" title="SSRF漏洞"><img src="/img/stcs/stcs-ssrf-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="SSRF漏洞"/></a><div class="content"><a class="title" href="/2026/09/11/SSRF%E6%BC%8F%E6%B4%9E/" title="SSRF漏洞">SSRF漏洞</a><time datetime="2026-09-11T13:51:51.000Z" title="发表于 2026-09-11 21:51:51">2026-09-11</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/09/10/%E6%96%87%E4%BB%B6%E5%8C%85%E5%90%AB%E6%BC%8F%E6%B4%9E/" title="文件包含漏洞"><img src="/img/stcs/stcs-wjbh-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="文件包含漏洞"/></a><div class="content"><a class="title" href="/2026/09/10/%E6%96%87%E4%BB%B6%E5%8C%85%E5%90%AB%E6%BC%8F%E6%B4%9E/" title="文件包含漏洞">文件包含漏洞</a><time datetime="2026-09-10T10:44:06.000Z" title="发表于 2026-09-10 18:44:06">2026-09-10</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/09/10/CSRF%E6%BC%8F%E6%B4%9E/" title="CSRF漏洞"><img src="/img/stcs/stcs-csrf-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="CSRF漏洞"/></a><div class="content"><a class="title" href="/2026/09/10/CSRF%E6%BC%8F%E6%B4%9E/" title="CSRF漏洞">CSRF漏洞</a><time datetime="2026-09-10T07:18:16.000Z" title="发表于 2026-09-10 15:18:16">2026-09-10</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2025 - 2026 By levi2005</span><span class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 8.1.2</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.5.4</a></span></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js?v=5.5.4"></script><script src="/js/main.js?v=5.5.4"></script><div class="js-pjax"></div><script src="/music/config.js"></script><script src="/js/home-music.js"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js" defer="defer"></script><script>document.addEventListener('DOMContentLoaded', () => {
+  const pjaxSelectors = ["head > title","#config-diff","#body-wrap","#rightside-config-hide","#rightside-config-show",".js-pjax"]
+
+  window.pjax = new Pjax({
+    elements: 'a:not([target="_blank"])',
+    selectors: pjaxSelectors,
+    cacheBust: false,
+    analytics: false,
+    scrollRestoration: false
+  })
+
+  const triggerPjaxFn = (val) => {
+    if (!val) return
+    Object.values(val).forEach(fn => {
+      try {
+        fn()
+      } catch (err) {
+        console.debug('Pjax callback failed:', err)
+      }
+    })
+  }
+
+  document.addEventListener('pjax:send', () => {
+    // removeEventListener
+    btf.removeGlobalFnEvent('pjaxSendOnce')
+    btf.removeGlobalFnEvent('themeChange')
+
+    // reset readmode
+    const $bodyClassList = document.body.classList
+    if ($bodyClassList.contains('read-mode')) $bodyClassList.remove('read-mode')
+
+    triggerPjaxFn(window.globalFn.pjaxSend)
+  })
+
+  document.addEventListener('pjax:complete', () => {
+    btf.removeGlobalFnEvent('pjaxCompleteOnce')
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+      const newScript = document.createElement('script')
+      const content = item.text || item.textContent || item.innerHTML || ""
+      Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+      newScript.appendChild(document.createTextNode(content))
+      item.parentNode.replaceChild(newScript, item)
+    })
+
+    triggerPjaxFn(window.globalFn.pjaxComplete)
+  })
+
+  document.addEventListener('pjax:error', e => {
+    if (e.request.status === 404) {
+      false
+        ? pjax.loadUrl('/404.html')
+        : window.location.href = e.request.responseURL
+    }
+  })
+})</script><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索标题、正文、标签或日期" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js?v=5.5.4"></script></div></div></body></html>
