@@ -1,0 +1,1260 @@
+<!DOCTYPE html><html lang="zh-CN" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Windows异常处理之VEH | levi2005's Blog</title><meta name="author" content="levi2005"><meta name="copyright" content="levi2005"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="Windows x64 VEH 全面解析：从 CPU 异常、进程级向量处理器注册与调用链，到 CONTEXT 恢复、VCH&#x2F;SEH 区别、x64dbg 与 ML64 实验。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Windows异常处理之VEH">
+<meta property="og:url" content="https://levi-5002.github.io/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/">
+<meta property="og:site_name" content="levi2005&#39;s Blog">
+<meta property="og:description" content="Windows x64 VEH 全面解析：从 CPU 异常、进程级向量处理器注册与调用链，到 CONTEXT 恢复、VCH&#x2F;SEH 区别、x64dbg 与 ML64 实验。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://levi-5002.github.io/img/debug/veh-cover.jpg">
+<meta property="article:published_time" content="2026-10-12T16:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-14T03:18:21.088Z">
+<meta property="article:author" content="levi2005">
+<meta property="article:tag" content="VCH">
+<meta property="article:tag" content="VEH">
+<meta property="article:tag" content="Windows">
+<meta property="article:tag" content="x64">
+<meta property="article:tag" content="x64dbg">
+<meta property="article:tag" content="反调试">
+<meta property="article:tag" content="异常处理">
+<meta property="article:tag" content="逆向分析">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://levi-5002.github.io/img/debug/veh-cover.jpg"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Windows异常处理之VEH",
+  "url": "https://levi-5002.github.io/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/",
+  "image": "https://levi-5002.github.io/img/debug/veh-cover.jpg",
+  "datePublished": "2026-10-12T16:00:00.000Z",
+  "dateModified": "2026-10-14T03:18:21.088Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "levi2005",
+      "url": "https://levi-5002.github.io"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/favicon.ico"><link rel="canonical" href="https://levi-5002.github.io/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><meta name="msvalidate.01" content="738328026312B34EDC19D3815EA2B81D"/><link rel="stylesheet" href="/css/index.css?v=5.5.4"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.1.0/css/all.min.css"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!true && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          theme === 'dark' ? activateDarkMode() : theme === 'light' ? activateLightMode() : null
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.json","preload":false,"top_n_per_article":3,"unescape":false,"pagination":{"enable":true,"hitsPerPage":8},"languages":{"hits_empty":"未找到符合您查询的内容：${query}","hits_stats":"共找到 ${hits} 篇文章"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: '复制成功',
+    error: '复制失败',
+    noSupport: '浏览器不支持'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: '刚刚',
+    min: '分钟前',
+    hour: '小时前',
+    day: '天前',
+    month: '个月前'
+  },
+  copyright: undefined,
+  lightbox: 'null',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid@4.13.0/dist/infinitegrid.min.js',
+    buttonText: '加载更多'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: false
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Windows异常处理之VEH',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><link rel="stylesheet" href="/css/home-music.css"><link rel="stylesheet" href="/css/columns.css"><meta name="generator" content="Hexo 8.1.2"></head><body><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/img/debug/veh-top.jpg);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">levi2005's Blog</span></a><a class="nav-page-title" href="/"><span class="site-name">Windows异常处理之VEH</span><span class="site-name"><i class="fa-solid fa-circle-arrow-left"></i><span>  返回首页</span></span></a></span><div id="menus"></div></nav><div id="post-info"><h1 class="post-title">Windows异常处理之VEH</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">发表于</span><time class="post-meta-date-created" datetime="2026-10-12T16:00:00.000Z" title="发表于 2026-10-13 00:00:00">2026-10-13</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">更新于</span><time class="post-meta-date-updated" datetime="2026-10-14T03:18:21.088Z" title="更新于 2026-10-14 11:18:21">2026-10-14</time></span><span class="post-meta-categories"><span class="post-meta-separator">|</span><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%B0%83%E8%AF%95/">调试</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%B0%83%E8%AF%95/windows/">windows</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%B0%83%E8%AF%95/windows/x64dbg/">x64dbg</a><i class="fas fa-angle-right post-meta-separator"></i><i class="fas fa-inbox fa-fw post-meta-icon"></i><a class="post-meta-categories" href="/categories/%E8%B0%83%E8%AF%95/windows/x64dbg/%E5%8F%8D%E8%B0%83%E8%AF%95/">反调试</a></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">浏览量:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="Windows-x64-异常处理之-VEH：从-CPU-异常、进程级处理器链、系统调用顺序到-x64dbg-与-ML64-实验"><a href="#Windows-x64-异常处理之-VEH：从-CPU-异常、进程级处理器链、系统调用顺序到-x64dbg-与-ML64-实验" class="headerlink" title="Windows x64 异常处理之 VEH：从 CPU 异常、进程级处理器链、系统调用顺序到 x64dbg 与 ML64 实验"></a>Windows x64 异常处理之 VEH：从 CPU 异常、进程级处理器链、系统调用顺序到 x64dbg 与 ML64 实验</h1><h2 id="一、VEH-是什么：为什么已有-SEH-还需要-VEH？"><a href="#一、VEH-是什么：为什么已有-SEH-还需要-VEH？" class="headerlink" title="一、VEH 是什么：为什么已有 SEH 还需要 VEH？"></a>一、VEH 是什么：为什么已有 SEH 还需要 VEH？</h2><h3 id="1-先区分异常、调试器、SEH-和-VEH"><a href="#1-先区分异常、调试器、SEH-和-VEH" class="headerlink" title="1. 先区分异常、调试器、SEH 和 VEH"></a>1. 先区分异常、调试器、SEH 和 VEH</h3><p>异常不是程序立即崩溃。例如：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">xor rax, rax</span><br><span class="line">mov dword ptr [rax], 1234h ; 通常产生访问冲突 0xC0000005</span><br></pre></td></tr></table></figure>
+
+<p>或者主动产生一个容易控制的可继续软件异常：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">RaiseException(<span class="number">0xE1234567</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="literal">NULL</span>);</span><br></pre></td></tr></table></figure>
+
+<p>Windows 会描述异常并保存故障线程上下文，然后按相应分发路径寻找能处理异常的代码。</p>
+<p><strong>VEH（Vectored Exception Handling，向量化异常处理）</strong> 是 Windows 提供的进程级异常回调机制。程序通过 <code>AddVectoredExceptionHandler</code> 将一个函数加入当前进程的异常处理器列表；当异常真正到达程序的用户态异常分发时，系统可以先调用这些回调，再搜索普通的栈帧式 SEH。</p>
+<p>“向量化”在这里是 Windows 对此处理器机制的名称，不意味着使用了 CPU 的 SIMD&#x2F;XMM&#x2F;YMM 向量指令，也不是 CPU IDT 中断向量表。</p>
+<h3 id="2-VEH-与-SEH-的根本区别"><a href="#2-VEH-与-SEH-的根本区别" class="headerlink" title="2. VEH 与 SEH 的根本区别"></a>2. VEH 与 SEH 的根本区别</h3><table>
+<thead>
+<tr>
+<th>比较项</th>
+<th>VEH</th>
+<th>SEH（<code>__try/__except</code>）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>注册方式</td>
+<td><code>AddVectoredExceptionHandler</code></td>
+<td>MSVC 编译器扩展 <code>__try/__except</code></td>
+</tr>
+<tr>
+<td>作用范围</td>
+<td>进程级回调列表</td>
+<td>当前线程的活动受保护作用域</td>
+</tr>
+<tr>
+<td>与栈帧绑定</td>
+<td><strong>否</strong></td>
+<td><strong>是</strong></td>
+</tr>
+<tr>
+<td>处理器如何定位</td>
+<td>根据进程中已注册的回调链</td>
+<td>根据 RIP、活动栈帧、函数表与语言作用域数据</td>
+</tr>
+<tr>
+<td>常规执行时机</td>
+<td>调试器首次机会之后，栈帧 SEH 搜索之前</td>
+<td>VEH 未接管后参与搜索</td>
+</tr>
+<tr>
+<td>回调参数</td>
+<td><code>EXCEPTION_POINTERS*</code>（一个参数）</td>
+<td>C Filter 的表达式；底层语言处理器有四个参数</td>
+</tr>
+<tr>
+<td>典型返回结果</td>
+<td><code>CONTINUE_SEARCH</code> 或 <code>CONTINUE_EXECUTION</code></td>
+<td>C Filter 还可使用 <code>EXECUTE_HANDLER</code></td>
+</tr>
+<tr>
+<td>常见应用</td>
+<td>异常观察、日志采集、特定故障现场恢复</td>
+<td>局部错误恢复、受保护作用域处理及 <code>__finally</code> 清理</td>
+</tr>
+</tbody></table>
+<p>例如线程 A 与 B 都执行 <code>Fault()</code>，VEH 可以在两个线程的异常中执行<strong>同一段回调代码</strong>，而不同线程的 SEH 仍然按照各自的活动栈帧寻找。</p>
+<p><strong>VEH 的进程级含义不是“在一个专门的异常线程中运行”</strong>。回调通常仍然由<strong>产生异常的那个线程</strong>执行。使用 <code>GetCurrentThreadId()</code> 可以在回调中获取该线程的 ID。</p>
+<h3 id="3-VEH、VCH、顶层-UEF-不要混淆"><a href="#3-VEH、VCH、顶层-UEF-不要混淆" class="headerlink" title="3. VEH、VCH、顶层 UEF 不要混淆"></a>3. VEH、VCH、顶层 UEF 不要混淆</h3><table>
+<thead>
+<tr>
+<th>缩写</th>
+<th>名称</th>
+<th>代表 API</th>
+<th>主要使用时机</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>VEH</td>
+<td>Vectored Exception Handler</td>
+<td><code>AddVectoredExceptionHandler</code></td>
+<td>分发早期观察或处理异常</td>
+</tr>
+<tr>
+<td>VCH</td>
+<td>Vectored Continue Handler</td>
+<td><code>AddVectoredContinueHandler</code></td>
+<td>与异常恢复&#x2F;继续相关的后续阶段，和 VEH 是不同列表</td>
+</tr>
+<tr>
+<td>SEH</td>
+<td>Structured Exception Handling</td>
+<td><code>__try/__except</code></td>
+<td>当前线程的栈帧式异常搜索</td>
+</tr>
+<tr>
+<td>UEF</td>
+<td>Unhandled Exception Filter</td>
+<td><code>SetUnhandledExceptionFilter</code></td>
+<td>异常到达顶层未处理路径时可能调用</td>
+</tr>
+</tbody></table>
+<p>正常的 VEH 处理成功后，无须再调用普通 SEH 执行相同异常的处理块；普通 SEH 已处理异常后，也不应推断顶层 UEF 一定执行。</p>
+<h2 id="二、一张图看懂-VEH-在-Windows-x64-异常分发中的位置"><a href="#二、一张图看懂-VEH-在-Windows-x64-异常分发中的位置" class="headerlink" title="二、一张图看懂 VEH 在 Windows x64 异常分发中的位置"></a>二、一张图看懂 VEH 在 Windows x64 异常分发中的位置</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">flowchart TD</span><br><span class="line">    A[CPU 异常 / RaiseException] --&gt; B[Windows 获取异常记录和 CONTEXT]</span><br><span class="line">    B --&gt; C&#123;存在调试器?&#125;</span><br><span class="line">    C --&gt;|是| D[First Chance]</span><br><span class="line">    D --&gt;|调试器已处理| R[恢复或继续相应上下文]</span><br><span class="line">    D --&gt;|调试器未处理| E[用户态异常分发]</span><br><span class="line">    C --&gt;|否| E</span><br><span class="line">    E --&gt; F[KiUserExceptionDispatcher]</span><br><span class="line">    F --&gt; G[RtlDispatchException]</span><br><span class="line">    G --&gt; H[调用 VEH 列表]</span><br><span class="line">    H --&gt; I&#123;VEH 返回什么?&#125;</span><br><span class="line">    I --&gt;|CONTINUE_EXECUTION -1| V[可考虑 VCH / 恢复 CONTEXT]</span><br><span class="line">    I --&gt;|CONTINUE_SEARCH 0| J[继续其他 VEH]</span><br><span class="line">    J --&gt; K&#123;还有 VEH?&#125;</span><br><span class="line">    K --&gt;|有| H</span><br><span class="line">    K --&gt;|无| L[当前线程的 SEH 栈帧搜索]</span><br><span class="line">    L --&gt; M&#123;SEH 处理结果&#125;</span><br><span class="line">    M --&gt;|恢复执行| V</span><br><span class="line">    M --&gt;|进入 except| N[RtlUnwindEx / 清理 / 目标 except]</span><br><span class="line">    M --&gt;|无人处理| O[顶层未处理路径 / 调试器最后机会]</span><br></pre></td></tr></table></figure>
+
+<p>这是<strong>职责示意图</strong>，不是所有 Windows 构建里都能观察到的固定 call 顺序。尤其：</p>
+<ul>
+<li><code>RaiseException</code> 软件异常不一定使用与 <code>ud2</code> 硬件异常完全相同的逐指令入口路径。</li>
+<li>VEH 列表在用户态分发的早期被调用，<strong>VEH 注册行为本身不需要 <code>.pdata</code> 或 <code>SCOPE_TABLE_AMD64</code></strong>。</li>
+<li>处理器返回 <code>EXCEPTION_CONTINUE_EXECUTION</code> 只表示请求恢复；若没有修复故障上下文，仍可能立刻再次异常。</li>
+<li>VCH 不是“所有 <code>__except</code> 后无条件运行的 finally”，其触发与实际恢复&#x2F;分发路径有关，具体细节应通过目标 Windows 构建验证。</li>
+<li><code>__fastfail</code>、某些快速终止&#x2F;栈严重损坏场景可能绕过常规 VEH&#x2F;SEH。</li>
+</ul>
+<h2 id="三、CPU、内核和调试器：VEH-之前发生了什么？"><a href="#三、CPU、内核和调试器：VEH-之前发生了什么？" class="headerlink" title="三、CPU、内核和调试器：VEH 之前发生了什么？"></a>三、CPU、内核和调试器：VEH 之前发生了什么？</h2><h3 id="1-硬件异常与软件异常"><a href="#1-硬件异常与软件异常" class="headerlink" title="1. 硬件异常与软件异常"></a>1. 硬件异常与软件异常</h3><table>
+<thead>
+<tr>
+<th>来源</th>
+<th>示例</th>
+<th>常见异常代码</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>非法内存访问</td>
+<td><code>mov dword ptr [rax], 1</code>，<code>rax=0</code></td>
+<td><code>0xC0000005</code></td>
+</tr>
+<tr>
+<td>非法指令</td>
+<td><code>ud2</code>（字节 <code>0F 0B</code>）</td>
+<td><code>0xC000001D</code></td>
+</tr>
+<tr>
+<td>整数除零</td>
+<td><code>div rcx</code>，<code>rcx=0</code></td>
+<td><code>0xC0000094</code></td>
+</tr>
+<tr>
+<td>软件断点</td>
+<td><code>int3</code></td>
+<td><code>0x80000003</code></td>
+</tr>
+<tr>
+<td>TF 单步陷阱</td>
+<td><code>RFLAGS.TF=1</code> 相关调试陷阱</td>
+<td><code>0x80000004</code></td>
+</tr>
+<tr>
+<td>主动软件异常</td>
+<td><code>RaiseException(0xE1234567,0,0,NULL)</code></td>
+<td>指定的异常码</td>
+</tr>
+</tbody></table>
+<p>并不是所有 CPU 页故障（<code>#PF</code>）都会转化为用户态 <code>STATUS_ACCESS_VIOLATION</code>；合法缺页可由内核自行处理、然后恢复执行。</p>
+<h3 id="2-一个典型-ud2-硬件异常路径"><a href="#2-一个典型-ud2-硬件异常路径" class="headerlink" title="2. 一个典型 ud2 硬件异常路径"></a>2. 一个典型 <code>ud2</code> 硬件异常路径</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">用户代码：ud2</span><br><span class="line">    ↓</span><br><span class="line">CPU 产生 #UD，进入相应内核异常入口</span><br><span class="line">    ↓</span><br><span class="line">Windows 内核异常分发（常见内部名称 nt!KiDispatchException）</span><br><span class="line">    ↓</span><br><span class="line">调试器 First Chance（若有）</span><br><span class="line">    ↓  DBG_EXCEPTION_NOT_HANDLED</span><br><span class="line">ntdll!KiUserExceptionDispatcher</span><br><span class="line">    ↓</span><br><span class="line">ntdll!RtlDispatchException</span><br><span class="line">    ↓</span><br><span class="line">VEH 链：RtlpCallVectoredHandlers 一类内部路径</span><br><span class="line">    ↓  没有处理</span><br><span class="line">按当前线程栈帧查找 SEH</span><br></pre></td></tr></table></figure>
+
+<p><code>KiUserExceptionDispatcher</code> 不是业务程序手工 <code>call</code> 的函数，也没有因为发生异常而创建新的线程。它是系统安排故障线程进入用户态异常分发时使用的入口之一。</p>
+<p><code>RtlDispatchException</code> 负责组织用户态异常处理的各个部分。这里和上一篇 SEH 博客对应：VEH 在前面被检查；若没有接管异常，后面才进入 <code>.pdata/.xdata</code>、<code>RtlLookupFunctionEntry</code>、<code>RtlVirtualUnwind</code>、<code>__C_specific_handler</code> 这一类栈帧处理路径。</p>
+<h3 id="3-调试器-First-Chance-Last-Chance"><a href="#3-调试器-First-Chance-Last-Chance" class="headerlink" title="3. 调试器 First Chance &#x2F; Last Chance"></a>3. 调试器 First Chance &#x2F; Last Chance</h3><p>调试器可以通过 <code>WaitForDebugEvent</code> 得到异常事件，再使用 <code>ContinueDebugEvent</code> 表达处理结果：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">DBG_CONTINUE               <span class="comment">// 调试器声明已处理异常</span></span><br><span class="line">DBG_EXCEPTION_NOT_HANDLED  <span class="comment">// 调试器声明未处理，继续交给程序</span></span><br></pre></td></tr></table></figure>
+
+<p>例如 x64dbg 收到 <code>ud2</code> 的异常后，如果直接吞掉而不改 <code>RIP</code>，很可能在同一条指令反复收到异常。要让程序自己的 VEH 接收，应使用将首次异常传递给目标程序的调试方式，如 <code>erun</code>。</p>
+<h2 id="四、VEH-必须了解的核心结构体"><a href="#四、VEH-必须了解的核心结构体" class="headerlink" title="四、VEH 必须了解的核心结构体"></a>四、VEH 必须了解的核心结构体</h2><p>与上一篇 SEH 使用的异常记录结构是相同的，但这里重点看 <strong>VEH 回调的一个参数如何携带两份信息</strong>。</p>
+<h3 id="1-EXCEPTION-RECORD：异常代码、异常位置与附加参数"><a href="#1-EXCEPTION-RECORD：异常代码、异常位置与附加参数" class="headerlink" title="1. EXCEPTION_RECORD：异常代码、异常位置与附加参数"></a>1. <code>EXCEPTION_RECORD</code>：异常代码、异常位置与附加参数</h3><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> _<span class="title">EXCEPTION_RECORD</span> &#123;</span></span><br><span class="line">    DWORD ExceptionCode;</span><br><span class="line">    DWORD ExceptionFlags;</span><br><span class="line">    <span class="class"><span class="keyword">struct</span> _<span class="title">EXCEPTION_RECORD</span> *<span class="title">ExceptionRecord</span>;</span></span><br><span class="line">    PVOID ExceptionAddress;</span><br><span class="line">    DWORD NumberParameters;</span><br><span class="line">    ULONG_PTR ExceptionInformation[EXCEPTION_MAXIMUM_PARAMETERS];</span><br><span class="line">&#125; EXCEPTION_RECORD;</span><br></pre></td></tr></table></figure>
+
+<p>原生 x64 中的关键字段：</p>
+<table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>字段</th>
+<th>解释</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>+0x00</code></td>
+<td><code>ExceptionCode</code></td>
+<td><code>STATUS_ACCESS_VIOLATION</code>、自定义异常码等</td>
+</tr>
+<tr>
+<td><code>+0x04</code></td>
+<td><code>ExceptionFlags</code></td>
+<td>是否不可继续、是否处于展开相关状态等</td>
+</tr>
+<tr>
+<td><code>+0x08</code></td>
+<td><code>ExceptionRecord</code></td>
+<td>相关或嵌套异常记录指针，不是 VEH 链表下一个节点</td>
+</tr>
+<tr>
+<td><code>+0x10</code></td>
+<td><code>ExceptionAddress</code></td>
+<td>触发异常的指令地址</td>
+</tr>
+<tr>
+<td><code>+0x18</code></td>
+<td><code>NumberParameters</code></td>
+<td>额外信息元素的有效数量</td>
+</tr>
+<tr>
+<td><code>+0x20</code></td>
+<td><code>ExceptionInformation[0]</code></td>
+<td>附加数据的开始</td>
+</tr>
+</tbody></table>
+<p>对访问冲突 <code>0xC0000005</code> 而言，<code>ExceptionInformation[0]</code> 通常为 <code>0=读</code>、<code>1=写</code>、<code>8=执行</code>，<code>ExceptionInformation[1]</code> 是访问失败的<strong>内存地址</strong>，而 <code>ExceptionAddress</code> 是<strong>指令地址</strong>。</p>
+<h3 id="2-CONTEXT：x64-故障线程寄存器状态"><a href="#2-CONTEXT：x64-故障线程寄存器状态" class="headerlink" title="2. CONTEXT：x64 故障线程寄存器状态"></a>2. <code>CONTEXT</code>：x64 故障线程寄存器状态</h3><p>真实代码应包含 <code>&lt;windows.h&gt;</code>，不要重新声明完整 <code>CONTEXT</code>。最重要的是：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>常见 x64 偏移</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Rax</code></td>
+<td><code>0x78</code></td>
+<td>通用寄存器</td>
+</tr>
+<tr>
+<td><code>Rsp</code></td>
+<td><code>0x98</code></td>
+<td>当前保存的栈顶</td>
+</tr>
+<tr>
+<td><code>Rip</code></td>
+<td><code>0xF8</code></td>
+<td>系统恢复执行时使用的指令地址</td>
+</tr>
+<tr>
+<td><code>EFlags</code></td>
+<td>见 SDK <code>CONTEXT</code></td>
+<td>各种处理器状态标志</td>
+</tr>
+</tbody></table>
+<p>如果确认故障指令是两字节 <code>ud2</code>：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">info-&gt;ContextRecord-&gt;Rip += <span class="number">2</span>;</span><br><span class="line"><span class="keyword">return</span> EXCEPTION_CONTINUE_EXECUTION;</span><br></pre></td></tr></table></figure>
+
+<p>则系统可以尝试从 <code>ud2</code> 后面继续执行。<strong>不能把所有异常、所有 <code>int3</code> 或软件异常都机械地套用 <code>RIP += 2</code></strong>，因为不同异常的 RIP 语义、指令长度和恢复要求不同。</p>
+<h3 id="3-EXCEPTION-POINTERS：VEH-回调的真正入口参数"><a href="#3-EXCEPTION-POINTERS：VEH-回调的真正入口参数" class="headerlink" title="3. EXCEPTION_POINTERS：VEH 回调的真正入口参数"></a>3. <code>EXCEPTION_POINTERS</code>：VEH 回调的真正入口参数</h3><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> _<span class="title">EXCEPTION_POINTERS</span> &#123;</span></span><br><span class="line">    PEXCEPTION_RECORD ExceptionRecord;</span><br><span class="line">    PCONTEXT ContextRecord;</span><br><span class="line">&#125; EXCEPTION_POINTERS;</span><br></pre></td></tr></table></figure>
+
+<p>x64 下：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">EXCEPTION_POINTERS*（RCX）</span><br><span class="line">  +0x00 → EXCEPTION_RECORD*</span><br><span class="line">  +0x08 → CONTEXT*</span><br></pre></td></tr></table></figure>
+
+<p>访问示例：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">LONG CALLBACK <span class="title function_">MyVeh</span><span class="params">(PEXCEPTION_POINTERS info)</span></span><br><span class="line">&#123;</span><br><span class="line">    DWORD code = info-&gt;ExceptionRecord-&gt;ExceptionCode;</span><br><span class="line">    DWORD64 rip = info-&gt;ContextRecord-&gt;Rip;</span><br><span class="line">    (<span class="type">void</span>)code;</span><br><span class="line">    (<span class="type">void</span>)rip;</span><br><span class="line">    <span class="keyword">return</span> EXCEPTION_CONTINUE_SEARCH;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>区别于底层 SEH 的四参数调用</strong>：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">VEH 回调：</span><br><span class="line">  RCX = EXCEPTION_POINTERS*</span><br><span class="line"></span><br><span class="line">底层语言 SEH 回调：</span><br><span class="line">  RCX = EXCEPTION_RECORD*</span><br><span class="line">  RDX = EstablisherFrame</span><br><span class="line">  R8  = CONTEXT*</span><br><span class="line">  R9  = DISPATCHER_CONTEXT*</span><br></pre></td></tr></table></figure>
+
+<p>这意味着在 x64dbg 中，不能把 VEH 回调入口的 <code>RCX</code> 当成直接的 <code>EXCEPTION_RECORD*</code>。对 VEH：先读 <code>[RCX]</code> 得到 <code>EXCEPTION_RECORD*</code>，再读 <code>[RCX+8]</code> 得到 <code>CONTEXT*</code>。</p>
+<h3 id="4-PVECTORED-EXCEPTION-HANDLER：回调函数指针"><a href="#4-PVECTORED-EXCEPTION-HANDLER：回调函数指针" class="headerlink" title="4. PVECTORED_EXCEPTION_HANDLER：回调函数指针"></a>4. <code>PVECTORED_EXCEPTION_HANDLER</code>：回调函数指针</h3><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">typedef</span> <span class="title function_">LONG</span> <span class="params">(WINAPI *PVECTORED_EXCEPTION_HANDLER)</span><span class="params">(</span></span><br><span class="line"><span class="params">    <span class="keyword">struct</span> _EXCEPTION_POINTERS *ExceptionInfo</span></span><br><span class="line"><span class="params">)</span>;</span><br></pre></td></tr></table></figure>
+
+<p>VEH 与 VCH 公开 API 都使用此回调类型。x64 下 <code>WINAPI</code> 采用 Windows x64 调用约定，指针参数由 <code>RCX</code> 传入，结果返回到 <code>EAX</code>。</p>
+<h3 id="5-链表节点到底是什么结构？"><a href="#5-链表节点到底是什么结构？" class="headerlink" title="5. 链表节点到底是什么结构？"></a>5. 链表节点到底是什么结构？</h3><p>VEH 注册时系统需要存储多个回调。<strong>但是 Windows SDK 没有公开稳定的 <code>_VEH_NODE</code> &#x2F; <code>_VECTORED_HANDLER_ENTRY</code> ABI</strong>。因此不能像 <code>EXCEPTION_POINTERS</code> 那样随便编写一份结构，就声称可在所有 Windows 11 版本读取其链表。</p>
+<p>历史 Windows 版本研究及 Wine&#x2F;ReactOS 的兼容实现可见到如下<strong>概念字段</strong>：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* 仅表示链表设计思想，不是 Windows 公开结构体 */</span></span><br><span class="line"><span class="keyword">typedef</span> <span class="class"><span class="keyword">struct</span> _<span class="title">VEH_ENTRY_CONCEPT</span> &#123;</span></span><br><span class="line">    <span class="comment">/* 前驱 / 后继链表关系 */</span></span><br><span class="line">    <span class="comment">/* 回调函数引用（实现中可能编码） */</span></span><br><span class="line">    <span class="comment">/* 注册生命周期 / 引用计数等管理状态 */</span></span><br><span class="line">&#125; VEH_ENTRY_CONCEPT;</span><br></pre></td></tr></table></figure>
+
+<p>内核并不因为这份进程级列表就把它“注册进 x64 的 <code>.pdata/.xdata</code>”。VEH 列表节点与函数展开表是<strong>两套不同的数据结构</strong>。</p>
+<h2 id="五、VEH-API：注册、优先级、注销和生存期"><a href="#五、VEH-API：注册、优先级、注销和生存期" class="headerlink" title="五、VEH API：注册、优先级、注销和生存期"></a>五、VEH API：注册、优先级、注销和生存期</h2><h3 id="1-AddVectoredExceptionHandler-的原型"><a href="#1-AddVectoredExceptionHandler-的原型" class="headerlink" title="1. AddVectoredExceptionHandler 的原型"></a>1. <code>AddVectoredExceptionHandler</code> 的原型</h3><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">PVOID <span class="title function_">AddVectoredExceptionHandler</span><span class="params">(</span></span><br><span class="line"><span class="params">    ULONG First,</span></span><br><span class="line"><span class="params">    PVECTORED_EXCEPTION_HANDLER Handler</span></span><br><span class="line"><span class="params">)</span>;</span><br></pre></td></tr></table></figure>
+
+<p>使用：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">PVOID handle = AddVectoredExceptionHandler(<span class="number">1</span>, MyVeh);</span><br><span class="line"><span class="keyword">if</span> (handle == <span class="literal">NULL</span>) &#123;</span><br><span class="line">    <span class="comment">/* 注册失败 */</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>两个参数：</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>First != 0</code></td>
+<td>将回调注册到当前调用顺序的前端</td>
+</tr>
+<tr>
+<td><code>First == 0</code></td>
+<td>将回调注册到当前调用顺序的后端</td>
+</tr>
+<tr>
+<td><code>Handler</code></td>
+<td>你的回调函数地址</td>
+</tr>
+</tbody></table>
+<p>返回的 <code>PVOID</code> 是<strong>注销时使用的不透明注册句柄</strong>，不要按自己猜测的内部链表布局修改其字段，也不要把它简单当成业务函数指针。</p>
+<h3 id="2-注册顺序不等于永远优先"><a href="#2-注册顺序不等于永远优先" class="headerlink" title="2. 注册顺序不等于永远优先"></a>2. 注册顺序不等于永远优先</h3><p>例如：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">PVOID a = AddVectoredExceptionHandler(<span class="number">0</span>, HandlerA);</span><br><span class="line">PVOID b = AddVectoredExceptionHandler(<span class="number">1</span>, HandlerB);</span><br><span class="line">PVOID c = AddVectoredExceptionHandler(<span class="number">0</span>, HandlerC);</span><br></pre></td></tr></table></figure>
+
+<p>此时在没有其他注册&#x2F;注销干扰的情况下，常见调用顺序是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">HandlerB → HandlerA → HandlerC</span><br></pre></td></tr></table></figure>
+
+<p>后来又调用：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">PVOID d = AddVectoredExceptionHandler(<span class="number">1</span>, HandlerD);</span><br></pre></td></tr></table></figure>
+
+<p>那么 <code>HandlerD</code> 可能排到当前最前面：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">HandlerD → HandlerB → HandlerA → HandlerC</span><br></pre></td></tr></table></figure>
+
+<p>所以 <code>First=1</code> 不是“我的函数终生是整个进程第一个异常处理器”，而是<strong>注册当时选择插入的位置</strong>。系统模块和其他线程可能动态修改列表。</p>
+<h3 id="3-RemoveVectoredExceptionHandler"><a href="#3-RemoveVectoredExceptionHandler" class="headerlink" title="3. RemoveVectoredExceptionHandler"></a>3. <code>RemoveVectoredExceptionHandler</code></h3><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ULONG <span class="title function_">RemoveVectoredExceptionHandler</span><span class="params">(PVOID Handle)</span>;</span><br></pre></td></tr></table></figure>
+
+<p>使用：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (handle != <span class="literal">NULL</span>) &#123;</span><br><span class="line">    ULONG removed = RemoveVectoredExceptionHandler(handle);</span><br><span class="line">    handle = <span class="literal">NULL</span>;</span><br><span class="line">    (<span class="type">void</span>)removed;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>成功返回非零，失败返回零。注册时应该保存 <code>AddVectoredExceptionHandler</code> 返回的句柄，注销时传回同一个句柄；不要把函数地址直接传给 <code>RemoveVectoredExceptionHandler</code>。</p>
+<h3 id="4-两个非常容易忽略的资源管理问题"><a href="#4-两个非常容易忽略的资源管理问题" class="headerlink" title="4. 两个非常容易忽略的资源管理问题"></a>4. 两个非常容易忽略的资源管理问题</h3><p><strong>第一：同一回调可以被注册多次。</strong> 注册返回的多个句柄分别代表注册项，可能导致同一函数在一次异常分发中被多次调用。不要重复注册却只注销其中一个。</p>
+<p><strong>第二：回调在 DLL 内时，卸载 DLL 前必须注销。</strong> Microsoft 的 API 文档明确指出：即使包含回调代码的 DLL 已被卸载，注册项仍可保留；之后再次触发异常，就可能间接调用一个已无效的地址。</p>
+<p>此外，VEH 可能与其他线程并发执行。生产代码还需设计注册、注销与线程退出时的生存期协调，避免回调仍在运行期间释放其依赖的数据。不要把 VEH 当成可随意执行大量 I&#x2F;O、锁操作、内存分配的普通日志回调。</p>
+<h3 id="5-进程级与线程级的区别"><a href="#5-进程级与线程级的区别" class="headerlink" title="5. 进程级与线程级的区别"></a>5. 进程级与线程级的区别</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">进程 P</span><br><span class="line">  ├── VEH 列表：HandlerB → HandlerA</span><br><span class="line">  │</span><br><span class="line">  ├── 线程 A → Fault() → 在 A 的线程上下文执行 VEH</span><br><span class="line">  └── 线程 B → Fault() → 在 B 的线程上下文执行 VEH</span><br></pre></td></tr></table></figure>
+
+<p><strong>调用的是同一份回调机器代码，传入的异常记录与线程上下文则可以不同。</strong> 回调如果操作进程全局状态，需要考虑多个线程同时触发异常的情况。</p>
+<h2 id="六、最重要的一章：VEH-的系统函数调用顺序及各层职责"><a href="#六、最重要的一章：VEH-的系统函数调用顺序及各层职责" class="headerlink" title="六、最重要的一章：VEH 的系统函数调用顺序及各层职责"></a>六、最重要的一章：VEH 的系统函数调用顺序及各层职责</h2><p>这部分对应上一篇 SEH 博客中的“<code>RtlDispatchException</code> 如何找到语言处理器”，但这一次要把<strong>注册</strong>与<strong>异常到达后的分发</strong>区分成两条独立调用链。</p>
+<h3 id="1-第一条链：AddVectoredExceptionHandler-注册回调"><a href="#1-第一条链：AddVectoredExceptionHandler-注册回调" class="headerlink" title="1. 第一条链：AddVectoredExceptionHandler 注册回调"></a>1. 第一条链：AddVectoredExceptionHandler 注册回调</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">应用程序</span><br><span class="line">   │</span><br><span class="line">   └── AddVectoredExceptionHandler(First, MyVeh)</span><br><span class="line">              │</span><br><span class="line">              ▼</span><br><span class="line">       Kernel32/KERNELBASE 对外 API 层</span><br><span class="line">              │</span><br><span class="line">              ▼</span><br><span class="line">       ntdll!RtlAddVectoredExceptionHandler（常见实现）</span><br><span class="line">              │</span><br><span class="line">              ▼</span><br><span class="line">       RtlpAddVectoredHandler 等内部管理例程（具体名称可变）</span><br><span class="line">              │</span><br><span class="line">              ├── 管理进程级回调列表</span><br><span class="line">              ├── 保存回调引用（部分实现会编码指针）</span><br><span class="line">              ├── 根据 First 插入列表头或尾</span><br><span class="line">              └── 返回不透明注册句柄</span><br></pre></td></tr></table></figure>
+
+<p><strong>第一条链做的是注册，不是异常处理。</strong> 调用 <code>AddVectoredExceptionHandler</code> 成功时，通常并不会立即进入 <code>MyVeh</code>。</p>
+<p>公开 API 与版本相关的内部实现应分开理解：</p>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>可能遇到的符号</th>
+<th>主要职责</th>
+<th>是否属于稳定公开 API</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>应用注册</td>
+<td><code>AddVectoredExceptionHandler</code></td>
+<td>接受优先级与回调地址，返回注册句柄</td>
+<td>是</td>
+</tr>
+<tr>
+<td>运行库注册</td>
+<td><code>RtlAddVectoredExceptionHandler</code></td>
+<td>进程内部列表管理的入口之一</td>
+<td>内部使用，勿依赖不变实现</td>
+</tr>
+<tr>
+<td>内部管理</td>
+<td><code>RtlpAddVectoredHandler</code> 等</td>
+<td>分配&#x2F;链接节点、处理并发与生命周期</td>
+<td>否</td>
+</tr>
+<tr>
+<td>进程状态</td>
+<td>VEH 处理器列表</td>
+<td>保存多份活动注册</td>
+<td>内部布局不保证稳定</td>
+</tr>
+</tbody></table>
+<p>历史 MSDN Magazine 的 Windows XP VEH 分析曾展示链表、锁与内部包装路径。它解释了整体设计思想，但它的链表节点大小、内部变量名、保护方式等<strong>不能原封不动用于最新 Windows x64</strong>。</p>
+<h3 id="2-在-x64dbg-中跟踪注册时的寄存器"><a href="#2-在-x64dbg-中跟踪注册时的寄存器" class="headerlink" title="2. 在 x64dbg 中跟踪注册时的寄存器"></a>2. 在 x64dbg 中跟踪注册时的寄存器</h3><p>例如：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">PVOID handle = AddVectoredExceptionHandler(<span class="number">1</span>, MyVeh);</span><br></pre></td></tr></table></figure>
+
+<p>Windows x64 前两个参数分别为：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">RCX = First = 1</span><br><span class="line">RDX = MyVeh 函数指针</span><br></pre></td></tr></table></figure>
+
+<p>函数返回时：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">RAX = 注册句柄（成功非 NULL）</span><br></pre></td></tr></table></figure>
+
+<p>不要把 <code>RAX</code> 的非零返回当成“当前异常已处理”的返回结果，这次只是<strong>注册 API 的返回值</strong>。</p>
+<p>在不同编译条件下，调用点可能先进入模块跳板、导入地址表或 CFG 跳板，再进入 API 主体；这些跳板不是新的一层异常处理器。</p>
+<h3 id="3-第二条链：异常产生后怎样调用-VEH？"><a href="#3-第二条链：异常产生后怎样调用-VEH？" class="headerlink" title="3. 第二条链：异常产生后怎样调用 VEH？"></a>3. 第二条链：异常产生后怎样调用 VEH？</h3><p>现在假设已经注册成功：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">AddVectoredExceptionHandler(<span class="number">1</span>, MyVeh);</span><br></pre></td></tr></table></figure>
+
+<p>之后某处执行：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ud2</span><br></pre></td></tr></table></figure>
+
+<p>一个典型的硬件异常处理路径可按功能写成：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line">用户程序执行 ud2</span><br><span class="line">    ↓</span><br><span class="line">CPU #UD → Windows 内核异常分发</span><br><span class="line">    ↓</span><br><span class="line">（如有调试器）First Chance</span><br><span class="line">    ↓  DBG_EXCEPTION_NOT_HANDLED</span><br><span class="line">ntdll!KiUserExceptionDispatcher</span><br><span class="line">    ↓</span><br><span class="line">ntdll!RtlDispatchException</span><br><span class="line">    ↓</span><br><span class="line">RtlpCallVectoredHandlers / RtlCallVectoredExceptionHandlers 等内部变体</span><br><span class="line">    │</span><br><span class="line">    ├── 取得本进程已注册的 VEH 列表</span><br><span class="line">    ├── 按调用顺序取出当前回调</span><br><span class="line">    ├── 构造/传递 EXCEPTION_POINTERS</span><br><span class="line">    └── 间接调用 MyVeh</span><br><span class="line">                  │</span><br><span class="line">                  ▼</span><br><span class="line">           MyVeh(EXCEPTION_POINTERS*)</span><br><span class="line">                  │</span><br><span class="line">            ┌─────┴─────┐</span><br><span class="line">            ▼           ▼</span><br><span class="line">      返回 -1          返回 0</span><br><span class="line">      尝试恢复        继续查找下一 VEH</span><br><span class="line">            │           │</span><br><span class="line">            ▼           └── 全部未处理后开始 SEH 搜索</span><br><span class="line">       VCH（若适用）</span><br><span class="line">            ↓</span><br><span class="line">       恢复 CONTEXT</span><br></pre></td></tr></table></figure>
+
+<p>这段路径中，负责调用 VEH 回调的常见内部符号可能有：</p>
+<ul>
+<li><code>RtlpCallVectoredHandlers</code>：部分 Windows 构建中用以遍历指定的向量处理器列表，可能带有“列表类型”参数。</li>
+<li><code>RtlCallVectoredExceptionHandlers</code>：某些兼容实现中的名称，更清楚地表示异常阶段的向量处理器调用。</li>
+<li><code>RtlpCallVectoredContinueHandlers</code> 或相同调用器处理另一列表：某些 Windows 构建中用于继续处理阶段。</li>
+</ul>
+<p>这些名字和参数<strong>不是公开 ABI</strong>。同一概念在 Windows 不同版本里可能被内联、拆分、加 CFG 包装或改变符号名。</p>
+<h3 id="4-RtlDispatchException-在-VEH-阶段究竟传了什么？"><a href="#4-RtlDispatchException-在-VEH-阶段究竟传了什么？" class="headerlink" title="4. RtlDispatchException 在 VEH 阶段究竟传了什么？"></a>4. RtlDispatchException 在 VEH 阶段究竟传了什么？</h3><p>可以将其输入按概念写为：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">BOOLEAN <span class="title function_">RtlDispatchException</span><span class="params">(</span></span><br><span class="line"><span class="params">    PEXCEPTION_RECORD ExceptionRecord,</span></span><br><span class="line"><span class="params">    PCONTEXT ContextRecord</span></span><br><span class="line"><span class="params">)</span>;</span><br></pre></td></tr></table></figure>
+
+<p>当它准备调用某个 VEH 时，需要让回调拿到两个指针。概念上的转换如下：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* 概念代码，不是 Windows 内部逐行源码 */</span></span><br><span class="line">EXCEPTION_POINTERS pointers;</span><br><span class="line">pointers.ExceptionRecord = ExceptionRecord;</span><br><span class="line">pointers.ContextRecord = ContextRecord;</span><br><span class="line"></span><br><span class="line">LONG result = MyVeh(&amp;pointers);</span><br></pre></td></tr></table></figure>
+
+<p>因此：<strong>VEH 回调并不直接得到 <code>DISPATCHER_CONTEXT*</code>、<code>EstablisherFrame</code>、<code>RUNTIME_FUNCTION*</code> 或 <code>SCOPE_TABLE_AMD64*</code>。</strong></p>
+<p>那是后续按栈帧搜索语言相关 SEH 时才会涉及的参数体系。</p>
+<h3 id="5-VEH-执行前一定要先查-pdata-吗？"><a href="#5-VEH-执行前一定要先查-pdata-吗？" class="headerlink" title="5. VEH 执行前一定要先查 .pdata 吗？"></a>5. VEH 执行前一定要先查 .pdata 吗？</h3><p><strong>不需要为了发现 VEH 注册而查 <code>.pdata</code>。</strong></p>
+<p>对比：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">VEH：从本进程回调列表取得函数指针 → 直接按 x64 调用约定调用</span><br><span class="line"></span><br><span class="line">SEH：从当前栈帧和控制地址出发 → 查函数表和语言异常元数据 → 找到处理器</span><br></pre></td></tr></table></figure>
+
+<p>所以不能错误地画成：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">RtlLookupFunctionEntry → UNWIND_INFO → SCOPE_TABLE_AMD64 → MyVeh</span><br></pre></td></tr></table></figure>
+
+<p>这样的链是普通 C SEH 的查找思想，不是 VEH 自身的注册索引方式。</p>
+<p>但这里必须加一个限制：<strong>VEH 回调本身也是一个普通 x64 代码函数。</strong></p>
+<p>如果回调是非叶函数，保存非易失寄存器、分配栈空间、调用其他函数，那么编译器仍需为它生成适当的 <code>.pdata/.xdata</code>，以便当回调自己发生异常、调试器进行栈回溯或系统需要展开时可以正确恢复栈帧。</p>
+<p>所以正确区别是：</p>
+<blockquote>
+<p>VEH 注册链不靠 <code>.pdata</code> 找到回调；VEH 回调函数自己的 x64 栈展开却仍需要遵守函数表规则。</p>
+</blockquote>
+<h3 id="6-RtlpCallVectoredHandlers-为什么可能读取-PEB？"><a href="#6-RtlpCallVectoredHandlers-为什么可能读取-PEB？" class="headerlink" title="6. RtlpCallVectoredHandlers 为什么可能读取 PEB？"></a>6. RtlpCallVectoredHandlers 为什么可能读取 PEB？</h3><p>在某些 Windows&#x2F;x64dbg 调试记录中，VEH 调用路径会看到类似：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mov rsi, qword ptr gs:[60h]  ; 当前进程的 PEB 指针</span><br></pre></td></tr></table></figure>
+
+<p>随后读取 PEB 里表示该进程是否使用 VEH 的内部状态位（常见研究称 <code>ProcessUsingVEH</code>），作为快速路径判断，避免在没有注册项时进行不必要的遍历。</p>
+<p>这只是<strong>某些版本的优化与实现细节</strong>。不能将固定的 PEB 偏移、位编号或内部列表地址写成跨 Windows 版本的标准 API。VEH 机制的公开契约是注册 API 及处理顺序，而不是 PEB 的某一个固定字段布局。</p>
+<h3 id="7-回调内部返回-1-后，后续的-RAX-为什么又变成-1？"><a href="#7-回调内部返回-1-后，后续的-RAX-为什么又变成-1？" class="headerlink" title="7. 回调内部返回 -1 后，后续的 RAX 为什么又变成 1？"></a>7. 回调内部返回 -1 后，后续的 RAX 为什么又变成 1？</h3><p>这和上一篇博客里“底层语言处理器返回值 vs 分发器 Boolean 结果”的区别类似：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">MyVeh：返回 LONG = -1，含义是 EXCEPTION_CONTINUE_EXECUTION</span><br><span class="line">     ↓</span><br><span class="line">VEH 链调用器将其理解为已经请求继续执行</span><br><span class="line">     ↓</span><br><span class="line">RtlDispatchException 最终向外层报告分发成功</span><br><span class="line">     ↓</span><br><span class="line">布尔结果 TRUE，可能体现为 AL = 1</span><br></pre></td></tr></table></figure>
+
+<p><strong>这两个 <code>1/-1</code> 不是同一种返回协议。</strong> 不要因为 <code>RtlDispatchException</code> 最终的 <code>AL=1</code>，就认为 VEH 回调返回了 <code>EXCEPTION_EXECUTE_HANDLER=1</code>。</p>
+<h2 id="七、VEH-返回值：什么时候继续搜索，什么时候恢复现场？"><a href="#七、VEH-返回值：什么时候继续搜索，什么时候恢复现场？" class="headerlink" title="七、VEH 返回值：什么时候继续搜索，什么时候恢复现场？"></a>七、VEH 返回值：什么时候继续搜索，什么时候恢复现场？</h2><h3 id="1-VEH-的正常返回值只有两种"><a href="#1-VEH-的正常返回值只有两种" class="headerlink" title="1. VEH 的正常返回值只有两种"></a>1. VEH 的正常返回值只有两种</h3><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">EXCEPTION_CONTINUE_SEARCH      <span class="comment">// 0</span></span><br><span class="line">EXCEPTION_CONTINUE_EXECUTION   <span class="comment">// -1（0xFFFFFFFF）</span></span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>回调返回</th>
+<th>含义</th>
+<th>下一步</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>EXCEPTION_CONTINUE_SEARCH</code> (<code>0</code>)</td>
+<td>此 VEH 不接管异常</td>
+<td>继续遍历后续 VEH；均未接管则进入 SEH 搜索</td>
+</tr>
+<tr>
+<td><code>EXCEPTION_CONTINUE_EXECUTION</code> (<code>-1</code>)</td>
+<td>当前异常已被处理，请尝试恢复上下文</td>
+<td>结束后续异常搜索，按适用路径进入 VCH&#x2F;上下文恢复</td>
+</tr>
+</tbody></table>
+<p><strong>不要在 VEH 回调中使用 <code>EXCEPTION_EXECUTE_HANDLER (1)</code> 作为“已处理”返回值。</strong></p>
+<p>它属于 C 语言 <code>__except</code> 筛选器与顶层过滤器使用的常量体系，不是 <code>PVECTORED_EXCEPTION_HANDLER</code> 文档约定的有效结果。不同实现对错误值的处理不可依赖。</p>
+<h3 id="2-对照套非常容易混淆的值"><a href="#2-对照套非常容易混淆的值" class="headerlink" title="2. 对照套非常容易混淆的值"></a>2. 对照套非常容易混淆的值</h3><table>
+<thead>
+<tr>
+<th align="right">返回数值</th>
+<th>VEH 回调函数返回值 <code>LONG</code></th>
+<th><code>RtlpCallVectoredHandlers</code> 的返回值（布尔值）</th>
+<th>C <code>__except</code> 过滤表达式</th>
+<th>底层 SEH <code>EXCEPTION_DISPOSITION</code>（异常语言处理handler）</th>
+<th><strong>RtlDispatchException</strong>Windows 异常分发函数（返回布尔值）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="right"><code>-1</code></td>
+<td><code>CONTINUE_EXECUTION</code></td>
+<td>不适用</td>
+<td><code>CONTINUE_EXECUTION</code></td>
+<td>不是常规枚举项</td>
+<td>不适用</td>
+</tr>
+<tr>
+<td align="right"><code>0</code></td>
+<td><code>CONTINUE_SEARCH</code></td>
+<td>没有处理器要求恢复执行，VEH 阶段未处理异常，继续后续异常分发，例如 SEH</td>
+<td><code>CONTINUE_SEARCH</code></td>
+<td><code>ExceptionContinueExecution</code></td>
+<td>异常分发未能找到成功处理异常的处理程序</td>
+</tr>
+<tr>
+<td align="right"><code>1</code></td>
+<td><strong>不是正常 VEH 返回值</strong></td>
+<td>有处理器返回了恢复执行的指令，VEH 阶段不再继续搜索，异常分发进入恢复路径</td>
+<td><code>EXECUTE_HANDLER</code></td>
+<td>&#96;ExceptionContinueSearch</td>
+<td>异常分发认为已经有处理程序处理了异常</td>
+</tr>
+<tr>
+<td align="right"><code>2</code></td>
+<td>不适用</td>
+<td>不适用</td>
+<td>不适用</td>
+<td><code>ExceptionNestedException</code></td>
+<td>不适用</td>
+</tr>
+<tr>
+<td align="right"><code>3</code></td>
+<td>不适用</td>
+<td>不适用</td>
+<td>不适用</td>
+<td><code>ExceptionCollidedUnwind</code></td>
+<td>不适用</td>
+</tr>
+</tbody></table>
+<p>例如：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">LONG CALLBACK <span class="title function_">MyVeh</span><span class="params">(PEXCEPTION_POINTERS info)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">if</span> (info-&gt;ExceptionRecord-&gt;ExceptionCode != <span class="number">0xE1234567U</span>L)</span><br><span class="line">        <span class="keyword">return</span> EXCEPTION_CONTINUE_SEARCH;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> EXCEPTION_CONTINUE_EXECUTION;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>如果 <code>RaiseException(0xE1234567, 0, 0, NULL)</code> 产生的是可继续软件异常，那么这个回调可以请求从原异常上下文继续执行。</p>
+<h3 id="3-修改-CONTEXT-Rip-的两个常见误区"><a href="#3-修改-CONTEXT-Rip-的两个常见误区" class="headerlink" title="3. 修改 CONTEXT.Rip 的两个常见误区"></a>3. 修改 CONTEXT.Rip 的两个常见误区</h3><p><strong>误区 A：不修改任何现场就能修复任意异常。</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ud2</span><br></pre></td></tr></table></figure>
+
+<p>如果始终返回 <code>CONTINUE_EXECUTION</code>，但 <code>Rip</code> 仍指向 <code>ud2</code>，CPU 可能会反复执行同一个非法指令，反复进入异常。</p>
+<p><strong>误区 B：所有异常都可以无条件 <code>Rip += 2</code>。</strong></p>
+<p><code>ud2</code> 恰好 2 字节，只适合已经确定目标后续指令边界且执行上下文合法的实验；<code>int3</code> 的保存地址&#x2F;调试器行为可能不同，普通软件异常 <code>RaiseException</code> 也不应直接照搬这种调整。</p>
+<p><strong>还应检查 <code>EXCEPTION_NONCONTINUABLE</code></strong>：如果异常明确不可继续，却强行请求继续执行，可能进一步产生 <code>STATUS_NONCONTINUABLE_EXCEPTION (0xC0000025)</code>。</p>
+<h3 id="4-VEH-的回调安全要求"><a href="#4-VEH-的回调安全要求" class="headerlink" title="4. VEH 的回调安全要求"></a>4. VEH 的回调安全要求</h3><p>微软文档建议 VEH 尽量只读取异常记录并返回。不要在回调中执行复杂的堆分配、获取锁、打开 UI、进行长时间文件 I&#x2F;O 或依赖易于再次触发异常的子系统。</p>
+<p>例如：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/* 合适的最简观察者 */</span></span><br><span class="line">LONG CALLBACK <span class="title function_">Observer</span><span class="params">(PEXCEPTION_POINTERS p)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">if</span> (p-&gt;ExceptionRecord-&gt;ExceptionCode == <span class="number">0xE1234567U</span>L) &#123;</span><br><span class="line">        <span class="comment">/* 记录到事先分配好的、线程安全的极简状态 */</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> EXCEPTION_CONTINUE_SEARCH;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>回调可能在程序已经破坏了栈、堆、加载器状态或全局锁的情况下执行。若这里再次出错，可能发生嵌套异常、递归分发甚至进程终止。</p>
+<h2 id="八、VCH（Vectored-Continue-Handler）到底是什么？"><a href="#八、VCH（Vectored-Continue-Handler）到底是什么？" class="headerlink" title="八、VCH（Vectored Continue Handler）到底是什么？"></a>八、VCH（Vectored Continue Handler）到底是什么？</h2><h3 id="1-与-VEH-相似的注册-API"><a href="#1-与-VEH-相似的注册-API" class="headerlink" title="1. 与 VEH 相似的注册 API"></a>1. 与 VEH 相似的注册 API</h3><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">PVOID <span class="title function_">AddVectoredContinueHandler</span><span class="params">(</span></span><br><span class="line"><span class="params">    ULONG First,</span></span><br><span class="line"><span class="params">    PVECTORED_EXCEPTION_HANDLER Handler</span></span><br><span class="line"><span class="params">)</span>;</span><br><span class="line"></span><br><span class="line">ULONG <span class="title function_">RemoveVectoredContinueHandler</span><span class="params">(PVOID Handle)</span>;</span><br></pre></td></tr></table></figure>
+
+<p>VCH 与 VEH 使用相同的回调指针类型，但<strong>保存在不同的处理器列表中，注册和注销的 API 也不同</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>VEH</th>
+<th>VCH</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>注册</td>
+<td><code>AddVectoredExceptionHandler</code></td>
+<td><code>AddVectoredContinueHandler</code></td>
+</tr>
+<tr>
+<td>注销</td>
+<td><code>RemoveVectoredExceptionHandler</code></td>
+<td><code>RemoveVectoredContinueHandler</code></td>
+</tr>
+<tr>
+<td>列表</td>
+<td>异常分发观察&#x2F;处理列表</td>
+<td>继续处理列表</td>
+</tr>
+<tr>
+<td>典型时机</td>
+<td>SEH 搜索之前</td>
+<td>异常已走向恢复的阶段，或实现相关的特定后续分发路径</td>
+</tr>
+<tr>
+<td>是否与 <code>__finally</code> 相同</td>
+<td>否</td>
+<td>否</td>
+</tr>
+</tbody></table>
+<h3 id="2-在调试器中可以观察到的典型调用链"><a href="#2-在调试器中可以观察到的典型调用链" class="headerlink" title="2. 在调试器中可以观察到的典型调用链"></a>2. 在调试器中可以观察到的典型调用链</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">异常发生</span><br><span class="line">   ↓</span><br><span class="line">RtlDispatchException</span><br><span class="line">   ↓</span><br><span class="line">VEH 观察者返回 CONTINUE_SEARCH</span><br><span class="line">   ↓</span><br><span class="line">后续 VEH 请求 CONTINUE_EXECUTION</span><br><span class="line">   ↓</span><br><span class="line">某些 Windows 实现继续调用 VCH 列表</span><br><span class="line">   ↓</span><br><span class="line">恢复异常 CONTEXT</span><br></pre></td></tr></table></figure>
+
+<p>也可能是局部 SEH 处理器要求恢复执行后，触发相应的继续处理路径。</p>
+<p><strong>但不要把 VCH 错画成：</strong></p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">所有 VEH → 所有 SEH → 所有 finally → 所有 except → 无条件 VCH</span><br></pre></td></tr></table></figure>
+
+<p>因为异常被 <code>__except</code> 接管后，可能进行非局部栈展开到处理块，并不是简单从原异常 RIP 继续执行。VCH 的调用条件及某些异常搜索失败路径的行为存在内部实现差异。Microsoft 的公开 VCH API 文档说明如何注册&#x2F;排序&#x2F;注销，但并未把每个内部边界都作为稳定 ABI 保证。</p>
+<h3 id="3-VCH-回调怎样写？"><a href="#3-VCH-回调怎样写？" class="headerlink" title="3. VCH 回调怎样写？"></a>3. VCH 回调怎样写？</h3><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">LONG CALLBACK <span class="title function_">MyContinueHandler</span><span class="params">(PEXCEPTION_POINTERS info)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">if</span> (info-&gt;ExceptionRecord-&gt;ExceptionCode == <span class="number">0xE1234567U</span>L) &#123;</span><br><span class="line">        <span class="comment">/* 检查将用于继续执行的上下文等 */</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> EXCEPTION_CONTINUE_SEARCH;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>实际使用中应测试该回调在哪些异常路径被调用；不要未经证实地将它当成全局“异常终于修复”的绝对通知。</p>
+<h2 id="九、六种重要的-VEH-执行顺序与异常恢复场景"><a href="#九、六种重要的-VEH-执行顺序与异常恢复场景" class="headerlink" title="九、六种重要的 VEH 执行顺序与异常恢复场景"></a>九、六种重要的 VEH 执行顺序与异常恢复场景</h2><h3 id="情况-A：VEH-只观察，随后由普通-SEH-接管"><a href="#情况-A：VEH-只观察，随后由普通-SEH-接管" class="headerlink" title="情况 A：VEH 只观察，随后由普通 SEH 接管"></a>情况 A：VEH 只观察，随后由普通 SEH 接管</h3><figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">LONG CALLBACK <span class="title function_">Observer</span><span class="params">(PEXCEPTION_POINTERS p)</span></span><br><span class="line">&#123;</span><br><span class="line">    <span class="keyword">return</span> EXCEPTION_CONTINUE_SEARCH;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/* 假设已经注册 Observer */</span></span><br><span class="line">__try &#123;</span><br><span class="line">    RaiseException(<span class="number">0xE1234567</span>, <span class="number">0</span>, <span class="number">0</span>, <span class="literal">NULL</span>);</span><br><span class="line">&#125;</span><br><span class="line">__except(EXCEPTION_EXECUTE_HANDLER) &#123;</span><br><span class="line">    <span class="comment">/* 局部 SEH 处理 */</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>逻辑顺序：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">RaiseException</span><br><span class="line">   ↓</span><br><span class="line">VEH Observer 返回 0</span><br><span class="line">   ↓</span><br><span class="line">SEH 过滤器返回 1</span><br><span class="line">   ↓</span><br><span class="line">必要的栈展开</span><br><span class="line">   ↓</span><br><span class="line">进入对应 __except</span><br></pre></td></tr></table></figure>
+
+<p>这说明 VEH 只是获得了更早的处理机会，并没有自动取代后续所有 SEH。</p>
+<h3 id="情况-B：第一个-VEH-返回-1，后面的-VEH-和普通-SEH-不再处理这次异常"><a href="#情况-B：第一个-VEH-返回-1，后面的-VEH-和普通-SEH-不再处理这次异常" class="headerlink" title="情况 B：第一个 VEH 返回 -1，后面的 VEH 和普通 SEH 不再处理这次异常"></a>情况 B：第一个 VEH 返回 -1，后面的 VEH 和普通 SEH 不再处理这次异常</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">异常</span><br><span class="line">  ↓</span><br><span class="line">VEH_B 发现目标异常并返回 -1</span><br><span class="line">  ↓</span><br><span class="line">尝试恢复线程的 CONTEXT</span><br></pre></td></tr></table></figure>
+
+<p>后面即使还有 <code>VEH_A</code>、<code>__except</code>，也不会按照正常的搜索路径继续调用它们。不过恢复过程中仍可能调用适用的 VCH，具体以运行时路径为准。</p>
+<h3 id="情况-C：两个-VEH-都返回-0"><a href="#情况-C：两个-VEH-都返回-0" class="headerlink" title="情况 C：两个 VEH 都返回 0"></a>情况 C：两个 VEH 都返回 0</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">异常</span><br><span class="line">  ↓</span><br><span class="line">VEH_B → CONTINUE_SEARCH</span><br><span class="line">  ↓</span><br><span class="line">VEH_A → CONTINUE_SEARCH</span><br><span class="line">  ↓</span><br><span class="line">普通 SEH 的当前有效栈帧</span><br></pre></td></tr></table></figure>
+
+<p>只有当所有有机会执行的 VEH 均未接管异常时，系统才继续进行普通的栈帧 SEH 搜索。</p>
+<h3 id="情况-D：同一个异常发生在两个线程中"><a href="#情况-D：同一个异常发生在两个线程中" class="headerlink" title="情况 D：同一个异常发生在两个线程中"></a>情况 D：同一个异常发生在两个线程中</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">线程 A：Fault()</span><br><span class="line">   ├── 共享的 VEH 列表中的 MyVeh（A 的异常现场）</span><br><span class="line">   └── A 线程自己的活动 SEH</span><br><span class="line"></span><br><span class="line">线程 B：Fault()</span><br><span class="line">   ├── 共享的 VEH 列表中的 MyVeh（B 的异常现场）</span><br><span class="line">   └── B 线程自己的活动 SEH</span><br></pre></td></tr></table></figure>
+
+<p>两个线程可能以不同先后顺序进入 <code>MyVeh</code>，回调里的全局状态需要同步。不能把 VEH 的进程级注册误读成“异常在线程 A 中产生，却在线程 B 中执行回调”。</p>
+<h3 id="情况-E：没有任何处理器接管异常"><a href="#情况-E：没有任何处理器接管异常" class="headerlink" title="情况 E：没有任何处理器接管异常"></a>情况 E：没有任何处理器接管异常</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">First Chance（若有）</span><br><span class="line">   ↓</span><br><span class="line">VEH 链全部返回 0</span><br><span class="line">   ↓</span><br><span class="line">栈帧 SEH 无人接受</span><br><span class="line">   ↓</span><br><span class="line">线程入口 / 顶层未处理异常路径（具体实现相关）</span><br><span class="line">   ↓</span><br><span class="line">调试器 Last Chance / 系统默认处置 / 进程终止</span><br></pre></td></tr></table></figure>
+
+<p>这并不表示 <code>SetUnhandledExceptionFilter</code> 注册的用户回调必然被调用。其调用条件、调试状态和特殊异常路径需要另外判断。</p>
+<h3 id="情况-F：VEH-回调自己又发生异常"><a href="#情况-F：VEH-回调自己又发生异常" class="headerlink" title="情况 F：VEH 回调自己又发生异常"></a>情况 F：VEH 回调自己又发生异常</h3><p>如果回调内再次访问非法地址，新的异常仍然可以触发异常分发。这可能带来嵌套异常和重复进入自身的风险：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">第一次异常</span><br><span class="line">   ↓</span><br><span class="line">MyVeh</span><br><span class="line">   ↓</span><br><span class="line">MyVeh 内部再次故障</span><br><span class="line">   ↓</span><br><span class="line">第二次异常</span><br><span class="line">   ↓</span><br><span class="line">重新进入异常分发</span><br></pre></td></tr></table></figure>
+
+<p>不是“程序会自动发现 MyVeh 发生异常并安全跳过它”。错误地把 VEH 用作复杂日志&#x2F;内存管理函数，可能使原本可恢复的小问题扩大成异常递归。</p>
+<h2 id="十、ML64-汇编实验：真正的-VEH-恢复-UD2，而不是-SEH"><a href="#十、ML64-汇编实验：真正的-VEH-恢复-UD2，而不是-SEH" class="headerlink" title="十、ML64 汇编实验：真正的 VEH 恢复 UD2，而不是 SEH"></a>十、ML64 汇编实验：真正的 VEH 恢复 UD2，而不是 SEH</h2><p>这个实验专门与上一篇博客的：<code>Start PROC FRAME:SEH_Handler</code>作对照</p>
+<p>这次的 VEH 完全不使用 <code>PROC FRAME:SEH_Handler</code> 来注册异常处理器，而是<strong>显式调用 <code>AddVectoredExceptionHandler</code></strong>。</p>
+<h3 id="1-预期流程"><a href="#1-预期流程" class="headerlink" title="1. 预期流程"></a>1. 预期流程</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">Start</span><br><span class="line">  ↓</span><br><span class="line">AddVectoredExceptionHandler(1, MyVeh)</span><br><span class="line">  ↓</span><br><span class="line">执行 ud2（机器码 0F 0B）</span><br><span class="line">  ↓</span><br><span class="line">Windows 异常分发</span><br><span class="line">  ↓</span><br><span class="line">MyVeh(EXCEPTION_POINTERS*)</span><br><span class="line">  ↓</span><br><span class="line">检查 ExceptionCode == C000001D</span><br><span class="line">  ↓</span><br><span class="line">修改 CONTEXT.Rip += 2</span><br><span class="line">  ↓</span><br><span class="line">返回 EXCEPTION_CONTINUE_EXECUTION（-1）</span><br><span class="line">  ↓</span><br><span class="line">恢复到 resume_site</span><br><span class="line">  ↓</span><br><span class="line">注销 VEH，ExitProcess(42)</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-完整-ML64-汇编源码：veh-x64-masm-asm"><a href="#2-完整-ML64-汇编源码：veh-x64-masm-asm" class="headerlink" title="2. 完整 ML64 汇编源码：veh_x64_masm.asm"></a>2. 完整 ML64 汇编源码：veh_x64_masm.asm</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br></pre></td><td class="code"><pre><span class="line">; Native Windows x64 VEH teaching program (ml64 syntax)</span><br><span class="line">; ml64 /nologo /c /Zi veh_x64_masm.asm</span><br><span class="line">; link /nologo /debug /subsystem:console /entry:Start /out:veh_x64_masm.exe veh_x64_masm.obj kernel32.lib</span><br><span class="line">; Run in a private test process, expected exit code 42.</span><br><span class="line">option casemap:none</span><br><span class="line"></span><br><span class="line">EXTERN AddVectoredExceptionHandler:PROC</span><br><span class="line">EXTERN RemoveVectoredExceptionHandler:PROC</span><br><span class="line">EXTERN ExitProcess:PROC</span><br><span class="line">INCLUDELIB kernel32.lib</span><br><span class="line"></span><br><span class="line">.data</span><br><span class="line">    g_handle    dq 0</span><br><span class="line">    handler_hit dd 0</span><br><span class="line"></span><br><span class="line">.code</span><br><span class="line">; x64 VEH callback signature:</span><br><span class="line">; RCX = EXCEPTION_POINTERS*</span><br><span class="line">; [RCX+0] = EXCEPTION_RECORD*, [RCX+8] = CONTEXT*</span><br><span class="line">; Return EAX=-1 for EXCEPTION_CONTINUE_EXECUTION,</span><br><span class="line">; or EAX=0 for EXCEPTION_CONTINUE_SEARCH.</span><br><span class="line">; This is a leaf function: no stack changes, no external calls.</span><br><span class="line">MyVeh PROC</span><br><span class="line">    mov rax, qword ptr [rcx]</span><br><span class="line">    cmp dword ptr [rax], 0C000001Dh  ; STATUS_ILLEGAL_INSTRUCTION</span><br><span class="line">    jne pass_exception</span><br><span class="line"></span><br><span class="line">    mov rax, qword ptr [rcx+8]       ; ContextRecord pointer</span><br><span class="line">    add qword ptr [rax+0F8h], 2      ; CONTEXT.Rip: skip UD2 (0F 0B)</span><br><span class="line">    mov dword ptr [handler_hit], 1</span><br><span class="line">    mov eax, 0FFFFFFFFh             ; EXCEPTION_CONTINUE_EXECUTION = -1</span><br><span class="line">    ret</span><br><span class="line"></span><br><span class="line">pass_exception:</span><br><span class="line">    xor eax, eax                     ; EXCEPTION_CONTINUE_SEARCH = 0</span><br><span class="line">    ret</span><br><span class="line">MyVeh ENDP</span><br><span class="line"></span><br><span class="line">Start PROC FRAME</span><br><span class="line">    sub rsp, 28h                     ; 32-byte shadow space + align</span><br><span class="line">    .allocstack 28h</span><br><span class="line">    .endprolog</span><br><span class="line"></span><br><span class="line">    mov ecx, 1                       ; First = 1</span><br><span class="line">    lea rdx, MyVeh                   ; Handler = &amp;MyVeh</span><br><span class="line">    call AddVectoredExceptionHandler</span><br><span class="line">    test rax, rax</span><br><span class="line">    jz fail</span><br><span class="line">    mov qword ptr [g_handle], rax</span><br><span class="line"></span><br><span class="line">fault_site:</span><br><span class="line">    ud2                               ; raise STATUS_ILLEGAL_INSTRUCTION</span><br><span class="line">resume_site:</span><br><span class="line">    mov rcx, qword ptr [g_handle]</span><br><span class="line">    call RemoveVectoredExceptionHandler</span><br><span class="line">    cmp dword ptr [handler_hit], 1</span><br><span class="line">    jne fail</span><br><span class="line"></span><br><span class="line">    mov ecx, 42</span><br><span class="line">    call ExitProcess</span><br><span class="line"></span><br><span class="line">fail:</span><br><span class="line">    mov ecx, 1</span><br><span class="line">    call ExitProcess</span><br><span class="line">Start ENDP</span><br><span class="line"></span><br><span class="line">END</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-编译命令"><a href="#3-编译命令" class="headerlink" title="3. 编译命令"></a>3. 编译命令</h3><figure class="highlight bat"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">ml64 /nologo /c /Zi veh_x64_masm.asm</span><br><span class="line"></span><br><span class="line">link /nologo /debug /subsystem:console /entry:<span class="built_in">Start</span> /out:veh_x64_masm.exe veh_x64_masm.obj kernel32.lib</span><br><span class="line"></span><br><span class="line">veh_x64_masm.exe</span><br><span class="line"><span class="built_in">echo</span> <span class="variable">%errorlevel%</span></span><br></pre></td></tr></table></figure>
+
+<p>预期退出码：<code>42</code>。建议先直接运行 EXE，之后再附加或使用 x64dbg 启动调试。这里没有 Windows 的 <code>ml64.exe</code>，所以命令和源码属于静态核对的教学材料，并未宣称已经在你的 Windows 环境中验证成功。</p>
+<h3 id="4-汇编重点逐句解释"><a href="#4-汇编重点逐句解释" class="headerlink" title="4. 汇编重点逐句解释"></a>4. 汇编重点逐句解释</h3><table>
+<thead>
+<tr>
+<th>关键指令</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>lea rdx, MyVeh</code></td>
+<td>把回调函数地址作为注册 API 的第二参数</td>
+</tr>
+<tr>
+<td><code>mov ecx,1</code></td>
+<td>注册 API 的 <code>First=1</code></td>
+</tr>
+<tr>
+<td><code>call AddVectoredExceptionHandler</code></td>
+<td>通过公开 API 注册 VEH</td>
+</tr>
+<tr>
+<td><code>test rax,rax</code></td>
+<td>判断注册句柄是否为 <code>NULL</code></td>
+</tr>
+<tr>
+<td><code>ud2</code></td>
+<td>触发非法指令异常</td>
+</tr>
+<tr>
+<td><code>mov rax,[rcx]</code></td>
+<td><strong>VEH</strong> 的 RCX 指向 <code>EXCEPTION_POINTERS</code>，此处取出 <code>ExceptionRecord*</code></td>
+</tr>
+<tr>
+<td><code>mov rax,[rcx+8]</code></td>
+<td>从 <code>EXCEPTION_POINTERS</code> 取出 <code>ContextRecord*</code></td>
+</tr>
+<tr>
+<td><code>add qword ptr [rax+0F8h],2</code></td>
+<td>修改保存的 <code>CONTEXT.Rip</code>，跳过 2 字节 UD2</td>
+</tr>
+<tr>
+<td><code>mov eax,0FFFFFFFFh</code></td>
+<td>VEH 返回 <code>EXCEPTION_CONTINUE_EXECUTION</code>（-1）</td>
+</tr>
+<tr>
+<td><code>xor eax,eax</code></td>
+<td>VEH 返回 <code>EXCEPTION_CONTINUE_SEARCH</code>（0）</td>
+</tr>
+<tr>
+<td><code>RemoveVectoredExceptionHandler</code></td>
+<td>正常完成后注销 VEH 注册</td>
+</tr>
+</tbody></table>
+<p><strong>这里的 <code>Start PROC FRAME</code> 是普通 x64 栈展开元数据声明，不是 VEH 的注册方式</strong>。程序需要调用 Windows API，所以编译器&#x2F;汇编器仍要正确描述 <code>Start</code> 的 <code>RSP</code> 分配。<code>MyVeh</code> 则是没有额外栈操作和其他函数调用的简易叶函数。</p>
+<p>和上一篇 SEH Demo 的两处核心区别：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">原生底层 SEH 回调：RCX=EXCEPTION_RECORD*，R8=CONTEXT*，返回 0 表示可恢复</span><br><span class="line">VEH 回调：RCX=EXCEPTION_POINTERS*，其中 [RCX+8]=CONTEXT*，返回 -1 表示可恢复</span><br></pre></td></tr></table></figure>
+
+<p>这也是为什么这两个 Demo 不能只把函数名替换一下就直接共用异常处理器代码。</p>
+<h2 id="十一、x64dbg-实战：从注册点一路跟到-VEH-回调和-CONTEXT-恢复"><a href="#十一、x64dbg-实战：从注册点一路跟到-VEH-回调和-CONTEXT-恢复" class="headerlink" title="十一、x64dbg 实战：从注册点一路跟到 VEH 回调和 CONTEXT 恢复"></a>十一、x64dbg 实战：从注册点一路跟到 VEH 回调和 CONTEXT 恢复</h2><p>我们首先查看主函数</p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-1.png" class="">
+
+<p>这里参数是：</p>
+<table>
+<thead>
+<tr>
+<th>寄存器</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>RCX</code></td>
+<td><code>0000000000000001</code>代表前端</td>
+</tr>
+<tr>
+<td><code>RDX</code></td>
+<td><code>00007FF746301005</code>这个指向我们的<code>MyVeh</code></td>
+</tr>
+</tbody></table>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-2.png" class="">
+
+<p>步进之后通过这个跳板跳到<code>RtlAddVectoredExceptionHandler</code>然后再跳转到<code>ntdll.RtlpAddVectoredHandler</code>进行我们的注册</p>
+<p>这里有一个将r8置0的操作是因为，因为在这套实现中，VEH 和 VCH 可以共用内部注册函数，第三个参数负责选择注册到哪一种向量处理器列表，<code>veh</code>为0，<code>vch</code>为1</p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-3.png" class="">
+
+<p>我们可以看到这里分为了很多层，这正是windows的思想，过程以导入跳板 → 对外接口 → 内部实现，第一个<code>call</code> 建立了一个函数调用关系，未来目标函数使用 <code>ret</code> 就可以返回调用点，第二个是个跳板，之所以这样设计，是因为 Windows DLL 的实际加载地址可能发生变化，这个跳板经常与 PE 的 IAT（Import Address Table，导入地址表） 有关，第三次则是加上一个参数，跳到实际实现之中，复用底层逻辑，执行实际注册操作，解决内部函数复用的问题</p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-4.png" class="">
+
+<p>这个实现当中最重要函数有<code>RtlEncodePointer</code>编码 <code>MyVeh</code> 的函数指针，再将结果存入节点的 <code>[节点+20h]</code>。因此该字段看起来不会等于明文的 <code>MyVeh</code> 地址，返回值就是我们的<code>handle</code></p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-5.png" class="">
+
+<p>将<code>rax</code>放到<code>handle</code>里面去然后调用异常<code>&lt;ntdll.KiUserExceptionDispatcher&gt;</code></p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-6.png" class="">
+
+<p>进入<code>&lt;ntdll.RtlDispatchException&gt;</code>之后再进入<code>&lt;ntdll.RtlDispatchException&gt;</code></p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-7.png" class="">
+
+<p>我们一直运行到<code>&lt;ntdll.RtlpCallVectoredHandlers&gt;</code></p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-8.png" class="">
+
+<p>他的参数为</p>
+<table>
+<thead>
+<tr>
+<th>寄存器</th>
+<th>本次值</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>RCX</code></td>
+<td><code>0x53BAFF530</code></td>
+<td><code>EXCEPTION_RECORD*</code>；<code>[RCX]=C000001D</code>，即 <code>ud2</code> 引发的非法指令异常</td>
+</tr>
+<tr>
+<td><code>RDX</code></td>
+<td><code>0x53BAFF040</code></td>
+<td><code>CONTEXT*</code>；进入时其中的 <code>Rip=0x7FF74630106B</code>，指向 <code>ud2</code></td>
+</tr>
+<tr>
+<td><code>R8D</code></td>
+<td><code>0</code></td>
+<td>0选择 VEH 异常处理器列表；<code>1</code> 则选择向量继续处理器（VCH）列表</td>
+</tr>
+</tbody></table>
+<p>进入之后首先<code>&lt;ntdll.RtlAcquireSRwLockExclusive&gt;</code>第一次锁住 VEH 列表，取出节点并增加使用计数</p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-9.png" class="">
+
+<p>然后我们在调用自己的回调函数之前需要对<code>veh</code>解锁，使用<code>&lt;ntdll.RtlReleaseSRWLockExclusive&gt;</code>函数</p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-10.png" class="">
+
+<p>接着就是<code>&lt;ntdll.RtlDecodePointer&gt;</code>这个函数对我们注册时编码保存的回调指针还原为可调用的地址，然后调用<code>&lt;ntdll._guard_dispatch_icall&gt;</code>参数为</p>
+<table>
+<thead>
+<tr>
+<th>位置</th>
+<th>这次的值</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>RAX</code></td>
+<td><code>7FF7C03B1005</code></td>
+<td>间接调用的目标地址，是跳向 <code>MyVeh</code> 的桩</td>
+</tr>
+<tr>
+<td><code>RCX</code></td>
+<td><code>20915EED0</code></td>
+<td>传给 <code>MyVeh</code> 的 <code>EXCEPTION_POINTERS*</code></td>
+</tr>
+<tr>
+<td><code>[RCX]</code></td>
+<td><code>20915F670</code></td>
+<td><code>ExceptionRecord*</code>；异常码为 <code>C000001D</code>（<code>ud2</code>）</td>
+</tr>
+<tr>
+<td><code>[RCX+8]</code></td>
+<td><code>20915F180</code></td>
+<td><code>ContextRecord*</code>；其中 RIP 原为 <code>7FFB35914DE8</code></td>
+</tr>
+<tr>
+<td>栈顶返回地址</td>
+<td><code>7FFB3580C196</code></td>
+<td><code>MyVeh</code> 执行完后回到调用指令的下一条（call指令的下一条地址）</td>
+</tr>
+</tbody></table>
+<p>接着此函数执行受保护的间接调用，将控制流送往回调</p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-11.png" class="">
+
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-12.png" class="">
+
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-13.png" class="">
+
+<p>最后一直调用到我们自己编写的回调函数，首先检查 <code>C000001D</code>，然后将 <code>CONTEXT.Rip</code> 从 RVA <code>106Bh</code> 改为 <code>106Dh</code>，返回 <code>FFFFFFFFh</code>（−1）表示恢复执行，这里最后返回到之前压栈的返回地址，回到<code>&lt;ntdll._guard_dispatch_icall&gt;</code>内部</p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-14.png" class="">
+
+<p>这里再次调用<code>RtlAcquireSRWLockExclusive</code>和<code>RtlReleaseSRWLockExclusive</code>这两个函数，分别负责在 <code>MyVeh</code> 返回后重新锁住列表，更新节点状态，独占锁防止其他线程同时修改列表和完成回调后的节点处理再解锁。</p>
+<p>然后回到<code>RtlDispatchException</code>，<code>RtlpCallVectoredHandlers</code> 的返回值为布尔值，这里返回值为1，表示<code>VEH</code> 阶段不再继续搜索，异常分发进入恢复路径</p>
+<p>接着这里的下一个<code>&lt;ntdll.RtlpCallVectoredHandlers&gt;</code>是<code>vch</code>的调用函数,前面的<code>mov r8d,1</code>也证明了这一点，由于这里并没有注册所以内部很简单，如果注册了 VCH，并不意味着每次异常都一定调用它。就图中的这条路径而言，必须先走到 <code>RtlDispatchException</code>，且第一次 VEH 调用返回 <code>AL=1</code>，程序才会执行第二条 <code>call</code>。进入第二条 <code>call</code> 后，如果<code>VCH</code> 已成功注册且仍在链表中，它才有机会被回调；如果链表中更靠前的处理器终止了遍历，排在后面的也可能不会被调用。并且他的返回值不会影响</p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-15.png" class="">
+
+<p>然后最后的<code>&lt;ntdll.RtlDispatchException&gt;</code>函数返回值为1(布尔值)代表异常分发认为已经有处理程序处理了异常，回到<code>&lt;ntdll.KiUserExceptionDispatcher&gt;</code>里，后续就是和上一个<code>seh</code>的demo一样，调用<code>&lt;ntdll.RtlGuardRestoreContext&gt;</code>进行执行流恢复。</p>
+<p>我们在这里可以发现，通过<code>NtContinue</code>执行<code>syscall</code>之后调试器会停止到<code>&lt;RemovevectoredExceptionHandler&gt;</code>而不是异常刚刚结束的那一个<code>mov</code>指令，这是因为我们返回之后会直接到<code>mov</code>这个指令，然后由于并没有单步异常触发，所以会执行完这一条指令，直到下一个指令<code>call</code>的时候才会触发单步调试异常被调试器捕获，所以会像停止在这里一样，如果我们在<code>mov</code>指令下断点也是可以断下的</p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-16.png" class="">
+
+<p>他的参数为</p>
+<table>
+<thead>
+<tr>
+<th>寄存器</th>
+<th>值</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>RCX</code></td>
+<td><code>178F5AF98D0</code></td>
+<td>要移除的处理器句柄，即之前 <code>AddVectoredExceptionHandler</code> 返回并保存在 <code>g_handle</code> 中的值</td>
+</tr>
+<tr>
+<td><code>RDX</code></td>
+<td><code>0</code></td>
+<td>内部链表选择值：<code>0</code> 选择 VEH；<code>1</code> 用于 VCH</td>
+</tr>
+</tbody></table>
+<p>接着我们步进这个<code>RemoveVectoredExceptionHandler&gt;</code>函数</p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-17.png" class="">
+
+<p>通过这个<code>jmp</code>转到这个移除的底层函数，同样这里也是同源函数复用，<code>vch</code>也是如此</p>
+<img src="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/veh-18.png" class="">
+
+<p>接着就是<code>windows</code>的内部实现，大致流程如下</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">RtlpRemoveVectoredHandler</span><br><span class="line">├─ RtlAcquireSRWLockExclusive       锁住 VEH 链表</span><br><span class="line">├─ LdrControlFlowGuardEnforced       查询 CFG 状态；这次返回 0</span><br><span class="line">├─ LdrProtectMrdata(0)              允许修改受保护的加载器数据</span><br><span class="line">│  └─ LdrpChangeMrdataProtection</span><br><span class="line">│     └─ NtProtectVirtualMemory     第 1 次：改为可读写</span><br><span class="line">├─ 从链表摘除节点，更新引用计数</span><br><span class="line">├─ RtlReleaseSRWLockExclusive       释放链表锁</span><br><span class="line">├─ RtlFreeHeap                      释放处理器关联的内存块</span><br><span class="line">├─ LdrControlFlowGuardEnforced       再次查询；返回 0</span><br><span class="line">├─ RtlFreeHeap                      释放处理器链表节点</span><br><span class="line">├─ LdrProtectMrdata(1)              恢复数据保护</span><br><span class="line">│  └─ LdrpChangeMrdataProtection</span><br><span class="line">│     └─ NtProtectVirtualMemory     第 2 次：改回只读</span><br><span class="line">└─ LdrControlFlowGuardEnforced       查询；返回 0</span><br></pre></td></tr></table></figure>
+
+<p>函数结束前执行 <code>mov eax,1</code>，在 <code>ret</code> 处读到 <code>RAX=1</code>，表示这次成功移除了注册项；找不到对应节点的分支则返回 0</p>
+<p>然后程序根据我们的<code>handle</code>选择退出码退出</p>
+<h3 id="与上一篇-SEH-调用链的断点对照"><a href="#与上一篇-SEH-调用链的断点对照" class="headerlink" title="与上一篇 SEH 调用链的断点对照"></a>与上一篇 SEH 调用链的断点对照</h3><table>
+<thead>
+<tr>
+<th>观察点</th>
+<th>原生 MASM SEH</th>
+<th>本文原生 MASM VEH</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>注册方式</td>
+<td><code>PROC FRAME:SEH_Handler</code> 生成静态语言处理器信息</td>
+<td><code>AddVectoredExceptionHandler(1, MyVeh)</code></td>
+</tr>
+<tr>
+<td>查找处理器</td>
+<td><code>RtlLookupFunctionEntry</code> → <code>RtlVirtualUnwind</code> → 自定义底层处理器</td>
+<td><code>RtlDispatchException</code> 的 VEH 列表调用路径直接找到回调</td>
+</tr>
+<tr>
+<td>Handler 函数签名</td>
+<td>4 参数（RCX&#x2F;RDX&#x2F;R8&#x2F;R9）</td>
+<td>1 参数（RCX&#x3D;EXCEPTION_POINTERS*）</td>
+</tr>
+<tr>
+<td>修改保存 RIP</td>
+<td><code>CONTEXT*</code> 在 R8</td>
+<td><code>CONTEXT*</code> 在 <code>[RCX+8]</code></td>
+</tr>
+<tr>
+<td>恢复执行返回值</td>
+<td><code>ExceptionContinueExecution = 0</code></td>
+<td><code>EXCEPTION_CONTINUE_EXECUTION = -1</code></td>
+</tr>
+<tr>
+<td>是否需要 <code>SCOPE_TABLE_AMD64</code></td>
+<td>自定义底层处理器也可不需要</td>
+<td>VEH 本身不需要</td>
+</tr>
+<tr>
+<td>.pdata&#x2F;.xdata</td>
+<td>用来找到静态底层语言处理器</td>
+<td>仍可为普通函数展开服务，但<strong>不是 VEH 注册表</strong></td>
+</tr>
+</tbody></table>
+<h2 id="十二、VEH-与异常型反调试-CTF-逆向的联系"><a href="#十二、VEH-与异常型反调试-CTF-逆向的联系" class="headerlink" title="十二、VEH 与异常型反调试 &#x2F; CTF 逆向的联系"></a>十二、VEH 与异常型反调试 &#x2F; CTF 逆向的联系</h2><h3 id="1-为什么-VEH-常出现在异常驱动控制流中？"><a href="#1-为什么-VEH-常出现在异常驱动控制流中？" class="headerlink" title="1. 为什么 VEH 常出现在异常驱动控制流中？"></a>1. 为什么 VEH 常出现在异常驱动控制流中？</h3><p>因为 VEH 不依赖某一个 <code>__try</code>。开发者可以预先注册回调，然后在不同函数中故意触发异常，使用保存的 <code>CONTEXT</code> 决定后续执行位置。</p>
+<p>例如概念路径：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">程序入口注册 VEH</span><br><span class="line">    ↓</span><br><span class="line">某函数执行 ud2</span><br><span class="line">    ↓</span><br><span class="line">异常分发进入 VEH</span><br><span class="line">    ↓</span><br><span class="line">处理器检查 ExceptionCode、RIP 或其他状态</span><br><span class="line">    ↓</span><br><span class="line">恢复/修改 CONTEXT</span><br><span class="line">    ↓</span><br><span class="line">从指定位置继续执行</span><br></pre></td></tr></table></figure>
+
+<p>这种模式可以出现在合法的异常恢复、兼容性工具、调试和程序分析中，也可能被反调试&#x2F;控制流混淆程序利用。<strong>不能仅仅因为某程序注册了 VEH 就认定其恶意。</strong></p>
+<h3 id="2-为什么直接-NOP-掉故意异常可能仍然失败？"><a href="#2-为什么直接-NOP-掉故意异常可能仍然失败？" class="headerlink" title="2. 为什么直接 NOP 掉故意异常可能仍然失败？"></a>2. 为什么直接 NOP 掉故意异常可能仍然失败？</h3><p>如果异常回调还承担初始化、状态变更或特定控制流转移，NOP 掉故意异常指令可能绕过必要步骤，造成后续程序行为异常。</p>
+<p>逆向时更适合先判断：</p>
+<ul>
+<li>哪个异常代码被目标 VEH 关注？</li>
+<li>VEH 在什么地址调用？</li>
+<li>它修改了哪些 <code>CONTEXT</code> 字段？</li>
+<li><code>EXCEPTION_CONTINUE_SEARCH</code> 和 <code>EXCEPTION_CONTINUE_EXECUTION</code> 哪条路径被选中？</li>
+<li>同一异常是否可能被其他 VEH、SEH 进一步接管？</li>
+</ul>
+<h3 id="3-为什么调试器可能让-VEH-看不到异常？"><a href="#3-为什么调试器可能让-VEH-看不到异常？" class="headerlink" title="3. 为什么调试器可能让 VEH 看不到异常？"></a>3. 为什么调试器可能让 VEH 看不到异常？</h3><p>因为调试器的首次处理机会在目标程序自己的 VEH 之前。如果调试器把某个异常声明为已处理，VEH 可能完全得不到机会。</p>
+<p>对 <code>int3</code>、单步等调试相关异常尤其应区分调试器自身设置的事件与程序故意产生的事件。使用 x64dbg 时，可以分别测试“传递异常”和“吞掉异常”的效果，而不是直接把所有异常代码配置为忽略。</p>
+<h3 id="4-线程、进程与异常传播边界"><a href="#4-线程、进程与异常传播边界" class="headerlink" title="4. 线程、进程与异常传播边界"></a>4. 线程、进程与异常传播边界</h3><p><code>AddVectoredExceptionHandler</code> 的注册范围是当前进程；它不会自动成为其他独立进程的异常处理器。</p>
+<p>同一进程中不同线程共享此回调注册，但不会共享一个正在抛出异常的线程的寄存器上下文。一个线程的 <code>__try</code> 也不会自动捕获另一个线程的异常。</p>
+<h2 id="十三、API、内部函数与返回值速查"><a href="#十三、API、内部函数与返回值速查" class="headerlink" title="十三、API、内部函数与返回值速查"></a>十三、API、内部函数与返回值速查</h2><table>
+<thead>
+<tr>
+<th>名称</th>
+<th>主要用途</th>
+<th>公开&#x2F;内部</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>AddVectoredExceptionHandler</code></td>
+<td>注册进程级 VEH，返回注册句柄</td>
+<td>公开 API</td>
+</tr>
+<tr>
+<td><code>RemoveVectoredExceptionHandler</code></td>
+<td>注销 VEH</td>
+<td>公开 API</td>
+</tr>
+<tr>
+<td><code>AddVectoredContinueHandler</code></td>
+<td>注册 VCH</td>
+<td>公开 API</td>
+</tr>
+<tr>
+<td><code>RemoveVectoredContinueHandler</code></td>
+<td>注销 VCH</td>
+<td>公开 API</td>
+</tr>
+<tr>
+<td><code>PVECTORED_EXCEPTION_HANDLER</code></td>
+<td>VEH&#x2F;VCH 回调函数类型</td>
+<td>Windows SDK</td>
+</tr>
+<tr>
+<td><code>EXCEPTION_POINTERS</code></td>
+<td>把异常记录与寄存器上下文作为一个参数传入</td>
+<td>Windows SDK</td>
+</tr>
+<tr>
+<td><code>EXCEPTION_RECORD</code></td>
+<td>描述异常代码、异常地址、附加参数</td>
+<td>Windows SDK</td>
+</tr>
+<tr>
+<td><code>CONTEXT</code></td>
+<td>描述 CPU 寄存器状态，支持适当情况下的恢复</td>
+<td>Windows SDK</td>
+</tr>
+<tr>
+<td><code>RaiseException</code></td>
+<td>主动制造软件异常</td>
+<td>公开 API</td>
+</tr>
+<tr>
+<td><code>nt!KiDispatchException</code></td>
+<td>参与内核异常分发</td>
+<td>内部实现</td>
+</tr>
+<tr>
+<td><code>ntdll!KiUserExceptionDispatcher</code></td>
+<td>用户态异常分发入口</td>
+<td>内部实现</td>
+</tr>
+<tr>
+<td><code>ntdll!RtlDispatchException</code></td>
+<td>组织 VEH 和后续 SEH 分发</td>
+<td>用户态运行库内部路径</td>
+</tr>
+<tr>
+<td><code>ntdll!RtlAddVectoredExceptionHandler</code></td>
+<td>某些 Windows 版本中的注册底层入口</td>
+<td>内部实现，不依赖稳定签名</td>
+</tr>
+<tr>
+<td><code>RtlpCallVectoredHandlers</code> 等</td>
+<td>遍历和调用已注册 VEH&#x2F;VCH</td>
+<td>内部实现，名称可变</td>
+</tr>
+<tr>
+<td><code>RtlLookupFunctionEntry</code></td>
+<td>查询 x64 函数表（常规 SEH 路径）</td>
+<td>已公开文档</td>
+</tr>
+<tr>
+<td><code>RtlVirtualUnwind</code></td>
+<td>计算调用者上下文（常规 SEH 路径）</td>
+<td>已公开文档</td>
+</tr>
+<tr>
+<td><code>__C_specific_handler</code></td>
+<td>解释 MSVC C SEH 作用域表</td>
+<td>语言运行库相关</td>
+</tr>
+<tr>
+<td><code>RtlUnwindEx</code></td>
+<td>执行真实的栈展开和必要清理</td>
+<td>已公开文档</td>
+</tr>
+<tr>
+<td><code>RtlRestoreContext</code> &#x2F; <code>NtContinue</code></td>
+<td>恢复指定线程上下文的常见实现途径</td>
+<td>低层实现相关</td>
+</tr>
+<tr>
+<td><code>SetUnhandledExceptionFilter</code></td>
+<td>设置进程当前顶层未处理异常过滤器</td>
+<td>公开 API</td>
+</tr>
+</tbody></table>
+<h3 id="常见错误与正确理解"><a href="#常见错误与正确理解" class="headerlink" title="常见错误与正确理解"></a>常见错误与正确理解</h3><table>
+<thead>
+<tr>
+<th>错误观点</th>
+<th>正确理解</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>VEH 是 SEH 的另一条 <code>.pdata</code> 链</td>
+<td>VEH 使用进程级注册列表，与栈帧 SEH 查找分离</td>
+</tr>
+<tr>
+<td>VEH 回调接收四个参数</td>
+<td>VEH 只收 <code>EXCEPTION_POINTERS*</code> 一个参数</td>
+</tr>
+<tr>
+<td><code>[RCX]</code> 在 VEH 内直接是异常码</td>
+<td><code>[RCX]</code> 是 <code>ExceptionRecord*</code>，要再间接读取一次</td>
+</tr>
+<tr>
+<td>VEH 返回 <code>1</code> 表示进入 except</td>
+<td>VEH 正常结果应是 <code>0</code> 或 <code>-1</code>，<code>1</code> 不是规定的已处理返回值</td>
+</tr>
+<tr>
+<td><code>First=1</code> 永远排在最前面</td>
+<td>后续注册也可以插到它前面</td>
+</tr>
+<tr>
+<td>回调在单独的异常线程执行</td>
+<td>通常在发生异常的线程上下文执行</td>
+</tr>
+<tr>
+<td>VEH 本身需要 SCOPE_TABLE_AMD64</td>
+<td>VEH 不依赖 C SEH 作用域表寻找自身</td>
+</tr>
+<tr>
+<td>回调注册在 DLL 中，卸载 DLL 会自动移除</td>
+<td>DLL 卸载不意味着注册项自动删除，必须显式注销</td>
+</tr>
+<tr>
+<td>VEH 观察到异常后一定会进入 SEH</td>
+<td>如果 VEH 请求恢复，正常的后续 SEH 搜索可能被跳过</td>
+</tr>
+<tr>
+<td>VCH 等同 <code>__finally</code></td>
+<td>VCH 是另一类进程级向量处理器，不是栈帧终止处理器</td>
+</tr>
+<tr>
+<td>用 <code>printf</code> 记录任何异常都安全</td>
+<td>VEH 可能在不安全的运行时状态执行，应尽量减少回调副作用</td>
+</tr>
+<tr>
+<td>所有致命异常必然走完 VEH&#x2F;SEH&#x2F;UEF</td>
+<td>快速失败等路径可能绕过常规处理</td>
+</tr>
+</tbody></table>
+<h2 id="十四、结语：真正理解-VEH-的三个关键问题"><a href="#十四、结语：真正理解-VEH-的三个关键问题" class="headerlink" title="十四、结语：真正理解 VEH 的三个关键问题"></a>十四、结语：真正理解 VEH 的三个关键问题</h2><p><strong>第一，VEH 是怎么注册和找到的？</strong></p>
+<p><code>AddVectoredExceptionHandler</code> 将回调加入进程级列表；异常到达用户态分发时，<code>RtlDispatchException</code> 的相关路径有机会按列表顺序调用它。它<strong>不需要先查询某个函数的 <code>SCOPE_TABLE_AMD64</code> 才能找到回调</strong>。</p>
+<p><strong>第二，VEH 拿到了什么？</strong></p>
+<p>回调接收一个 <code>EXCEPTION_POINTERS*</code>，里面有 <code>EXCEPTION_RECORD*</code> 和 <code>CONTEXT*</code>。它可以检查异常代码、发生位置及保存的寄存器状态，并在符合条件时修改现场，请求恢复执行。</p>
+<p><strong>第三，VEH 与其他异常处理层怎样衔接？</strong></p>
+<p>如果 VEH 返回 <code>CONTINUE_SEARCH</code>，会继续向后续 VEH 或普通栈帧 SEH 搜索；如果返回 <code>CONTINUE_EXECUTION</code>，系统会尝试恢复上下文，可能涉及 VCH。调试器首次机会位于这些用户处理器之前；顶层未处理过滤器是另一种最终处置机制，不能认为每次都会运行。</p>
+<p>把本文的 C 程序的 <code>chain</code> &#x2F; <code>resume</code> 两种模式，与上一篇原生 MASM SEH 的 <code>PROC FRAME:SEH_Handler</code> 实验进行对照，你就能在 x64dbg 中直接理解：<strong>同一个 <code>ud2</code> 故障现场，为什么既可以通过函数表式 SEH 找到处理器，也可以通过进程级 VEH 列表找到回调，但它们的函数原型和返回协议完全不同。</strong></p>
+<h2 id="参考资料"><a href="#参考资料" class="headerlink" title="参考资料"></a>参考资料</h2><p>以下链接主要来自 Microsoft Learn。带有“历史&#x2F;兼容实现”的链接用于帮助理解内部设计，<strong>不是微软闭源 Windows 当前版本的逐行源码</strong>。</p>
+<ol>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/debug/vectored-exception-handling">Microsoft — Vectored Exception Handling</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/errhandlingapi/nf-errhandlingapi-addvectoredexceptionhandler">Microsoft — AddVectoredExceptionHandler</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/errhandlingapi/nf-errhandlingapi-removevectoredexceptionhandler">Microsoft — RemoveVectoredExceptionHandler</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/winnt/nc-winnt-pvectored_exception_handler">Microsoft — PVECTORED_EXCEPTION_HANDLER</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/errhandlingapi/nf-errhandlingapi-addvectoredcontinuehandler">Microsoft — AddVectoredContinueHandler</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/errhandlingapi/nf-errhandlingapi-removevectoredcontinuehandler">Microsoft — RemoveVectoredContinueHandler</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/debug/debugger-exception-handling">Microsoft — Debugger Exception Handling</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/debug/using-a-vectored-exception-handler">Microsoft — Using a Vectored Exception Handler</a>（官方示例原文注明不适用于 x64，本文改用 x64 实验）</li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-exception_pointers">Microsoft — EXCEPTION_POINTERS</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-exception_record">Microsoft — EXCEPTION_RECORD</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/cpp/build/exception-handling-x64">Microsoft — x64 Exception Handling</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/windows/win32/api/errhandlingapi/nf-errhandlingapi-raisefailfastexception">Microsoft — RaiseFailFastException</a></li>
+<li><a target="_blank" rel="noopener" href="https://learn.microsoft.com/en-us/archive/msdn-magazine/2001/september/under-the-hood-new-vectored-exception-handling-in-windows-xp">Microsoft MSDN Magazine（历史）— New Vectored Exception Handling in Windows XP</a></li>
+<li><a target="_blank" rel="noopener" href="https://doxygen.reactos.org/d6/dea/sdk_2lib_2rtl_2amd64_2except_8c_source.html">ReactOS（兼容实现）— AMD64 exception dispatch</a></li>
+<li><a target="_blank" rel="noopener" href="https://help.x64dbg.com/en/latest/commands/debug-control/erun.html">x64dbg — erun &#x2F; Pass Exceptions</a></li>
+<li><a target="_blank" rel="noopener" href="https://help.x64dbg.com/en/latest/commands/debug-control/serun.html">x64dbg — serun &#x2F; Swallow Exception</a></li>
+</ol>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>文章作者: </span><span class="post-copyright-info"><a href="https://levi-5002.github.io">levi2005</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>文章链接: </span><span class="post-copyright-info"><a href="https://levi-5002.github.io/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/">https://levi-5002.github.io/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>版权声明: </span><span class="post-copyright-info">本博客所有文章除特别声明外，均采用 <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank">CC BY-NC-SA 4.0</a> 许可协议。转载请注明来源 <a href="https://levi-5002.github.io" target="_blank">levi2005's Blog</a>！</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/%E5%8F%8D%E8%B0%83%E8%AF%95/">反调试</a><a class="post-meta__tags" href="/tags/x64dbg/">x64dbg</a><a class="post-meta__tags" href="/tags/Windows/">Windows</a><a class="post-meta__tags" href="/tags/x64/">x64</a><a class="post-meta__tags" href="/tags/%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86/">异常处理</a><a class="post-meta__tags" href="/tags/%E9%80%86%E5%90%91%E5%88%86%E6%9E%90/">逆向分析</a><a class="post-meta__tags" href="/tags/VEH/">VEH</a><a class="post-meta__tags" href="/tags/VCH/">VCH</a></div><div class="post-share"><div class="social-share" data-image="/img/debug/veh-cover.jpg" data-sites="facebook,x,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc@1.1.6/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width" href="/2026/10/12/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSEH/" title="Windows异常处理之SEH"><img class="cover" src="/img/debug/seh-cover.jpg" onerror="onerror=null;src='/img/404.jpg'" alt="cover of next post"><div class="info text-right"><div class="info-1"><div class="info-item-1">下一篇</div><div class="info-item-2">Windows异常处理之SEH</div></div><div class="info-2"><div class="info-item-1">Windows x64 异常处理之 SEH：从 CPU 异常、函数表、系统调用链到栈展开与 x64dbg 实验一、SEH 是什么：异常不等于崩溃异常（Exception）是 CPU 或软件报告的异常控制流事件。发生异常 ≠ 立即崩溃：系统可以交给处理器检查，决定修复并恢复执行、退出出错作用域，或者继续向外搜索。只有最终无人接管、状态无法恢复或触发特殊终止机制时，进程才可能终止。 例如： 12xor rax, raxmov dword ptr [rax], 1234h   ; 通常触发 STATUS_ACCESS_VIOLATION  另一种更适合实验的故意异常： 1ud2                         ; 两字节：0F 0B，通常触发 STATUS_ILLEGAL_INSTRUCTION  SEH（Structured Exception Handling） 使当前线程活动调用栈中的受保护代码区域能够决定如何处理异常。在 C 中一般表示为： 123456__try &#123;    Fault();&#125;__except(EXCEPTION_EXECUT...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>相关推荐</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2026/10/12/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSEH/" title="Windows异常处理之SEH"><img class="cover" src="/img/debug/seh-cover.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-10-12</div><div class="info-item-2">Windows异常处理之SEH</div></div><div class="info-2"><div class="info-item-1">Windows x64 异常处理之 SEH：从 CPU 异常、函数表、系统调用链到栈展开与 x64dbg 实验一、SEH 是什么：异常不等于崩溃异常（Exception）是 CPU 或软件报告的异常控制流事件。发生异常 ≠ 立即崩溃：系统可以交给处理器检查，决定修复并恢复执行、退出出错作用域，或者继续向外搜索。只有最终无人接管、状态无法恢复或触发特殊终止机制时，进程才可能终止。 例如： 12xor rax, raxmov dword ptr [rax], 1234h   ; 通常触发 STATUS_ACCESS_VIOLATION  另一种更适合实验的故意异常： 1ud2                         ; 两字节：0F 0B，通常触发 STATUS_ILLEGAL_INSTRUCTION  SEH（Structured Exception Handling） 使当前线程活动调用栈中的受保护代码区域能够决定如何处理异常。在 C 中一般表示为： 123456__try &#123;    Fault();&#125;__except(EXCEPTION_EXECUT...</div></div></div></a><a class="pagination-related" href="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/" title="windows异常处理之SetUnhandledExceptionFilter"><img class="cover" src="/img/debug/setunhandled-cover.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-10-12</div><div class="info-item-2">windows异常处理之SetUnhandledExceptionFilter</div></div><div class="info-2"><div class="info-item-1">Windows 异常处理机制详解：SetUnhandledExceptionFilter 从内核异常分发到程序终止与x64dbg手动实验一、Windows 异常处理机制与核心原理1. 异常与程序崩溃异常（Exception）是程序执行过程中需要特殊处理的事件，既可以由 CPU 硬件产生，也可以由软件主动产生。 例如： 12mov eax, 0mov dword ptr [eax], 0  由于 EAX=0，第二条指令尝试向无效地址写入数据，通常触发访问违规异常 0xC0000005。 但是，异常发生并不代表进程立即终止。 Windows 可以保存故障线程的寄存器状态，寻找合适的异常处理程序。如果异常得到处理，线程可能恢复执行、重新执行故障指令，或者转移到异常处理代码。 需要特别区分：    概念 含义    Exception 程序或 CPU 产生了异常条件   Handled Exception 异常已经由某个处理程序接管   Unhandled Exception 异常没有被相应处理机制解决   Crash 程序因无法恢复的错误或致命条件而终止   如果异常发生后，问题没有解...</div></div></div></a><a class="pagination-related" href="/2026/10/10/windows%E5%8F%8D%E8%B0%83%E8%AF%95%E4%BB%8B%E7%BB%8D/" title="windows反调试介绍"><img class="cover" src="/img/debug/fts-cover.jpg" alt="cover"><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2026-10-10</div><div class="info-item-2">windows反调试介绍</div></div><div class="info-2"><div class="info-item-1">Windows 反调试技术全解析：26 种检测机制、底层原理与逆向反反调试反调试（Anti-Debugging）是 Windows 软件保护、逆向工程、CTF Reverse 和恶意代码分析中的重要技术。其目的并不局限于发现调试器是否存在，还包括识别分析环境、检测程序是否被单步跟踪、阻止调试事件正常传递，以及发现程序代码在调试过程中发生的修改。 从最简单的 IsDebuggerPresent() 到涉及 Windows Native API、PEB、内核调试对象、异常分发、CPU 调试寄存器和 TLS Callback 的底层机制，反调试技术虽然实现方式各不相同，但大多数都围绕一个核心过程展开： 获取调试相关信息，判断运行环境是否符合预期，并根据判断结果改变程序的正常执行流程。 反反调试（Anti-Anti-Debugging）则是从逆向分析角度还原上述过程，识别检测依据、数据来源和控制流，在理解程序真实逻辑的基础上排除调试障碍。 本文系统梳理 Windows 平台上 26 项常见反调试技术，按照系统调试状态、运行环境、时间行为、内存与堆、异常机制、线程上下文以及程序完整性等不同...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/levi.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">levi2005</div><div class="author-info-description">一个神人的博客</div><div class="site-data"><a href="/archives/"><div class="headline">文章</div><div class="length-num">12</div></a><a href="/tags/"><div class="headline">标签</div><div class="length-num">28</div></a><a href="/categories/"><div class="headline">分类</div><div class="length-num">13</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/levi-5002"><i class="fab fa-github"></i><span>Follow Me</span></a></div><div class="card-widget card-search" id="search-button"><button class="search" type="button"><i class="fas fa-search fa-fw" aria-hidden="true"></i><span>搜索</span></button></div><div class="card-widget card-announcement"><div class="item-headline"><i class="fas fa-bullhorn fa-shake"></i><span>公告</span></div><div class="announcement_content">For the emperor</div></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>目录</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#Windows-x64-%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8B-VEH%EF%BC%9A%E4%BB%8E-CPU-%E5%BC%82%E5%B8%B8%E3%80%81%E8%BF%9B%E7%A8%8B%E7%BA%A7%E5%A4%84%E7%90%86%E5%99%A8%E9%93%BE%E3%80%81%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8%E9%A1%BA%E5%BA%8F%E5%88%B0-x64dbg-%E4%B8%8E-ML64-%E5%AE%9E%E9%AA%8C"><span class="toc-number">1.</span> <span class="toc-text">Windows x64 异常处理之 VEH：从 CPU 异常、进程级处理器链、系统调用顺序到 x64dbg 与 ML64 实验</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%80%E3%80%81VEH-%E6%98%AF%E4%BB%80%E4%B9%88%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E5%B7%B2%E6%9C%89-SEH-%E8%BF%98%E9%9C%80%E8%A6%81-VEH%EF%BC%9F"><span class="toc-number">1.1.</span> <span class="toc-text">一、VEH 是什么：为什么已有 SEH 还需要 VEH？</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-%E5%85%88%E5%8C%BA%E5%88%86%E5%BC%82%E5%B8%B8%E3%80%81%E8%B0%83%E8%AF%95%E5%99%A8%E3%80%81SEH-%E5%92%8C-VEH"><span class="toc-number">1.1.1.</span> <span class="toc-text">1. 先区分异常、调试器、SEH 和 VEH</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-VEH-%E4%B8%8E-SEH-%E7%9A%84%E6%A0%B9%E6%9C%AC%E5%8C%BA%E5%88%AB"><span class="toc-number">1.1.2.</span> <span class="toc-text">2. VEH 与 SEH 的根本区别</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-VEH%E3%80%81VCH%E3%80%81%E9%A1%B6%E5%B1%82-UEF-%E4%B8%8D%E8%A6%81%E6%B7%B7%E6%B7%86"><span class="toc-number">1.1.3.</span> <span class="toc-text">3. VEH、VCH、顶层 UEF 不要混淆</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E3%80%81%E4%B8%80%E5%BC%A0%E5%9B%BE%E7%9C%8B%E6%87%82-VEH-%E5%9C%A8-Windows-x64-%E5%BC%82%E5%B8%B8%E5%88%86%E5%8F%91%E4%B8%AD%E7%9A%84%E4%BD%8D%E7%BD%AE"><span class="toc-number">1.2.</span> <span class="toc-text">二、一张图看懂 VEH 在 Windows x64 异常分发中的位置</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E3%80%81CPU%E3%80%81%E5%86%85%E6%A0%B8%E5%92%8C%E8%B0%83%E8%AF%95%E5%99%A8%EF%BC%9AVEH-%E4%B9%8B%E5%89%8D%E5%8F%91%E7%94%9F%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F"><span class="toc-number">1.3.</span> <span class="toc-text">三、CPU、内核和调试器：VEH 之前发生了什么？</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-%E7%A1%AC%E4%BB%B6%E5%BC%82%E5%B8%B8%E4%B8%8E%E8%BD%AF%E4%BB%B6%E5%BC%82%E5%B8%B8"><span class="toc-number">1.3.1.</span> <span class="toc-text">1. 硬件异常与软件异常</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-%E4%B8%80%E4%B8%AA%E5%85%B8%E5%9E%8B-ud2-%E7%A1%AC%E4%BB%B6%E5%BC%82%E5%B8%B8%E8%B7%AF%E5%BE%84"><span class="toc-number">1.3.2.</span> <span class="toc-text">2. 一个典型 ud2 硬件异常路径</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-%E8%B0%83%E8%AF%95%E5%99%A8-First-Chance-Last-Chance"><span class="toc-number">1.3.3.</span> <span class="toc-text">3. 调试器 First Chance &#x2F; Last Chance</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9B%9B%E3%80%81VEH-%E5%BF%85%E9%A1%BB%E4%BA%86%E8%A7%A3%E7%9A%84%E6%A0%B8%E5%BF%83%E7%BB%93%E6%9E%84%E4%BD%93"><span class="toc-number">1.4.</span> <span class="toc-text">四、VEH 必须了解的核心结构体</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-EXCEPTION-RECORD%EF%BC%9A%E5%BC%82%E5%B8%B8%E4%BB%A3%E7%A0%81%E3%80%81%E5%BC%82%E5%B8%B8%E4%BD%8D%E7%BD%AE%E4%B8%8E%E9%99%84%E5%8A%A0%E5%8F%82%E6%95%B0"><span class="toc-number">1.4.1.</span> <span class="toc-text">1. EXCEPTION_RECORD：异常代码、异常位置与附加参数</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-CONTEXT%EF%BC%9Ax64-%E6%95%85%E9%9A%9C%E7%BA%BF%E7%A8%8B%E5%AF%84%E5%AD%98%E5%99%A8%E7%8A%B6%E6%80%81"><span class="toc-number">1.4.2.</span> <span class="toc-text">2. CONTEXT：x64 故障线程寄存器状态</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-EXCEPTION-POINTERS%EF%BC%9AVEH-%E5%9B%9E%E8%B0%83%E7%9A%84%E7%9C%9F%E6%AD%A3%E5%85%A5%E5%8F%A3%E5%8F%82%E6%95%B0"><span class="toc-number">1.4.3.</span> <span class="toc-text">3. EXCEPTION_POINTERS：VEH 回调的真正入口参数</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-PVECTORED-EXCEPTION-HANDLER%EF%BC%9A%E5%9B%9E%E8%B0%83%E5%87%BD%E6%95%B0%E6%8C%87%E9%92%88"><span class="toc-number">1.4.4.</span> <span class="toc-text">4. PVECTORED_EXCEPTION_HANDLER：回调函数指针</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-%E9%93%BE%E8%A1%A8%E8%8A%82%E7%82%B9%E5%88%B0%E5%BA%95%E6%98%AF%E4%BB%80%E4%B9%88%E7%BB%93%E6%9E%84%EF%BC%9F"><span class="toc-number">1.4.5.</span> <span class="toc-text">5. 链表节点到底是什么结构？</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%94%E3%80%81VEH-API%EF%BC%9A%E6%B3%A8%E5%86%8C%E3%80%81%E4%BC%98%E5%85%88%E7%BA%A7%E3%80%81%E6%B3%A8%E9%94%80%E5%92%8C%E7%94%9F%E5%AD%98%E6%9C%9F"><span class="toc-number">1.5.</span> <span class="toc-text">五、VEH API：注册、优先级、注销和生存期</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-AddVectoredExceptionHandler-%E7%9A%84%E5%8E%9F%E5%9E%8B"><span class="toc-number">1.5.1.</span> <span class="toc-text">1. AddVectoredExceptionHandler 的原型</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-%E6%B3%A8%E5%86%8C%E9%A1%BA%E5%BA%8F%E4%B8%8D%E7%AD%89%E4%BA%8E%E6%B0%B8%E8%BF%9C%E4%BC%98%E5%85%88"><span class="toc-number">1.5.2.</span> <span class="toc-text">2. 注册顺序不等于永远优先</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-RemoveVectoredExceptionHandler"><span class="toc-number">1.5.3.</span> <span class="toc-text">3. RemoveVectoredExceptionHandler</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-%E4%B8%A4%E4%B8%AA%E9%9D%9E%E5%B8%B8%E5%AE%B9%E6%98%93%E5%BF%BD%E7%95%A5%E7%9A%84%E8%B5%84%E6%BA%90%E7%AE%A1%E7%90%86%E9%97%AE%E9%A2%98"><span class="toc-number">1.5.4.</span> <span class="toc-text">4. 两个非常容易忽略的资源管理问题</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-%E8%BF%9B%E7%A8%8B%E7%BA%A7%E4%B8%8E%E7%BA%BF%E7%A8%8B%E7%BA%A7%E7%9A%84%E5%8C%BA%E5%88%AB"><span class="toc-number">1.5.5.</span> <span class="toc-text">5. 进程级与线程级的区别</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AD%E3%80%81%E6%9C%80%E9%87%8D%E8%A6%81%E7%9A%84%E4%B8%80%E7%AB%A0%EF%BC%9AVEH-%E7%9A%84%E7%B3%BB%E7%BB%9F%E5%87%BD%E6%95%B0%E8%B0%83%E7%94%A8%E9%A1%BA%E5%BA%8F%E5%8F%8A%E5%90%84%E5%B1%82%E8%81%8C%E8%B4%A3"><span class="toc-number">1.6.</span> <span class="toc-text">六、最重要的一章：VEH 的系统函数调用顺序及各层职责</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-%E7%AC%AC%E4%B8%80%E6%9D%A1%E9%93%BE%EF%BC%9AAddVectoredExceptionHandler-%E6%B3%A8%E5%86%8C%E5%9B%9E%E8%B0%83"><span class="toc-number">1.6.1.</span> <span class="toc-text">1. 第一条链：AddVectoredExceptionHandler 注册回调</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-%E5%9C%A8-x64dbg-%E4%B8%AD%E8%B7%9F%E8%B8%AA%E6%B3%A8%E5%86%8C%E6%97%B6%E7%9A%84%E5%AF%84%E5%AD%98%E5%99%A8"><span class="toc-number">1.6.2.</span> <span class="toc-text">2. 在 x64dbg 中跟踪注册时的寄存器</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-%E7%AC%AC%E4%BA%8C%E6%9D%A1%E9%93%BE%EF%BC%9A%E5%BC%82%E5%B8%B8%E4%BA%A7%E7%94%9F%E5%90%8E%E6%80%8E%E6%A0%B7%E8%B0%83%E7%94%A8-VEH%EF%BC%9F"><span class="toc-number">1.6.3.</span> <span class="toc-text">3. 第二条链：异常产生后怎样调用 VEH？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-RtlDispatchException-%E5%9C%A8-VEH-%E9%98%B6%E6%AE%B5%E7%A9%B6%E7%AB%9F%E4%BC%A0%E4%BA%86%E4%BB%80%E4%B9%88%EF%BC%9F"><span class="toc-number">1.6.4.</span> <span class="toc-text">4. RtlDispatchException 在 VEH 阶段究竟传了什么？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#5-VEH-%E6%89%A7%E8%A1%8C%E5%89%8D%E4%B8%80%E5%AE%9A%E8%A6%81%E5%85%88%E6%9F%A5-pdata-%E5%90%97%EF%BC%9F"><span class="toc-number">1.6.5.</span> <span class="toc-text">5. VEH 执行前一定要先查 .pdata 吗？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#6-RtlpCallVectoredHandlers-%E4%B8%BA%E4%BB%80%E4%B9%88%E5%8F%AF%E8%83%BD%E8%AF%BB%E5%8F%96-PEB%EF%BC%9F"><span class="toc-number">1.6.6.</span> <span class="toc-text">6. RtlpCallVectoredHandlers 为什么可能读取 PEB？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#7-%E5%9B%9E%E8%B0%83%E5%86%85%E9%83%A8%E8%BF%94%E5%9B%9E-1-%E5%90%8E%EF%BC%8C%E5%90%8E%E7%BB%AD%E7%9A%84-RAX-%E4%B8%BA%E4%BB%80%E4%B9%88%E5%8F%88%E5%8F%98%E6%88%90-1%EF%BC%9F"><span class="toc-number">1.6.7.</span> <span class="toc-text">7. 回调内部返回 -1 后，后续的 RAX 为什么又变成 1？</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%83%E3%80%81VEH-%E8%BF%94%E5%9B%9E%E5%80%BC%EF%BC%9A%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E7%BB%A7%E7%BB%AD%E6%90%9C%E7%B4%A2%EF%BC%8C%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E6%81%A2%E5%A4%8D%E7%8E%B0%E5%9C%BA%EF%BC%9F"><span class="toc-number">1.7.</span> <span class="toc-text">七、VEH 返回值：什么时候继续搜索，什么时候恢复现场？</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-VEH-%E7%9A%84%E6%AD%A3%E5%B8%B8%E8%BF%94%E5%9B%9E%E5%80%BC%E5%8F%AA%E6%9C%89%E4%B8%A4%E7%A7%8D"><span class="toc-number">1.7.1.</span> <span class="toc-text">1. VEH 的正常返回值只有两种</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-%E5%AF%B9%E7%85%A7%E5%A5%97%E9%9D%9E%E5%B8%B8%E5%AE%B9%E6%98%93%E6%B7%B7%E6%B7%86%E7%9A%84%E5%80%BC"><span class="toc-number">1.7.2.</span> <span class="toc-text">2. 对照套非常容易混淆的值</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-%E4%BF%AE%E6%94%B9-CONTEXT-Rip-%E7%9A%84%E4%B8%A4%E4%B8%AA%E5%B8%B8%E8%A7%81%E8%AF%AF%E5%8C%BA"><span class="toc-number">1.7.3.</span> <span class="toc-text">3. 修改 CONTEXT.Rip 的两个常见误区</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-VEH-%E7%9A%84%E5%9B%9E%E8%B0%83%E5%AE%89%E5%85%A8%E8%A6%81%E6%B1%82"><span class="toc-number">1.7.4.</span> <span class="toc-text">4. VEH 的回调安全要求</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%85%AB%E3%80%81VCH%EF%BC%88Vectored-Continue-Handler%EF%BC%89%E5%88%B0%E5%BA%95%E6%98%AF%E4%BB%80%E4%B9%88%EF%BC%9F"><span class="toc-number">1.8.</span> <span class="toc-text">八、VCH（Vectored Continue Handler）到底是什么？</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-%E4%B8%8E-VEH-%E7%9B%B8%E4%BC%BC%E7%9A%84%E6%B3%A8%E5%86%8C-API"><span class="toc-number">1.8.1.</span> <span class="toc-text">1. 与 VEH 相似的注册 API</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-%E5%9C%A8%E8%B0%83%E8%AF%95%E5%99%A8%E4%B8%AD%E5%8F%AF%E4%BB%A5%E8%A7%82%E5%AF%9F%E5%88%B0%E7%9A%84%E5%85%B8%E5%9E%8B%E8%B0%83%E7%94%A8%E9%93%BE"><span class="toc-number">1.8.2.</span> <span class="toc-text">2. 在调试器中可以观察到的典型调用链</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-VCH-%E5%9B%9E%E8%B0%83%E6%80%8E%E6%A0%B7%E5%86%99%EF%BC%9F"><span class="toc-number">1.8.3.</span> <span class="toc-text">3. VCH 回调怎样写？</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B9%9D%E3%80%81%E5%85%AD%E7%A7%8D%E9%87%8D%E8%A6%81%E7%9A%84-VEH-%E6%89%A7%E8%A1%8C%E9%A1%BA%E5%BA%8F%E4%B8%8E%E5%BC%82%E5%B8%B8%E6%81%A2%E5%A4%8D%E5%9C%BA%E6%99%AF"><span class="toc-number">1.9.</span> <span class="toc-text">九、六种重要的 VEH 执行顺序与异常恢复场景</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%83%85%E5%86%B5-A%EF%BC%9AVEH-%E5%8F%AA%E8%A7%82%E5%AF%9F%EF%BC%8C%E9%9A%8F%E5%90%8E%E7%94%B1%E6%99%AE%E9%80%9A-SEH-%E6%8E%A5%E7%AE%A1"><span class="toc-number">1.9.1.</span> <span class="toc-text">情况 A：VEH 只观察，随后由普通 SEH 接管</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%83%85%E5%86%B5-B%EF%BC%9A%E7%AC%AC%E4%B8%80%E4%B8%AA-VEH-%E8%BF%94%E5%9B%9E-1%EF%BC%8C%E5%90%8E%E9%9D%A2%E7%9A%84-VEH-%E5%92%8C%E6%99%AE%E9%80%9A-SEH-%E4%B8%8D%E5%86%8D%E5%A4%84%E7%90%86%E8%BF%99%E6%AC%A1%E5%BC%82%E5%B8%B8"><span class="toc-number">1.9.2.</span> <span class="toc-text">情况 B：第一个 VEH 返回 -1，后面的 VEH 和普通 SEH 不再处理这次异常</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%83%85%E5%86%B5-C%EF%BC%9A%E4%B8%A4%E4%B8%AA-VEH-%E9%83%BD%E8%BF%94%E5%9B%9E-0"><span class="toc-number">1.9.3.</span> <span class="toc-text">情况 C：两个 VEH 都返回 0</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%83%85%E5%86%B5-D%EF%BC%9A%E5%90%8C%E4%B8%80%E4%B8%AA%E5%BC%82%E5%B8%B8%E5%8F%91%E7%94%9F%E5%9C%A8%E4%B8%A4%E4%B8%AA%E7%BA%BF%E7%A8%8B%E4%B8%AD"><span class="toc-number">1.9.4.</span> <span class="toc-text">情况 D：同一个异常发生在两个线程中</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%83%85%E5%86%B5-E%EF%BC%9A%E6%B2%A1%E6%9C%89%E4%BB%BB%E4%BD%95%E5%A4%84%E7%90%86%E5%99%A8%E6%8E%A5%E7%AE%A1%E5%BC%82%E5%B8%B8"><span class="toc-number">1.9.5.</span> <span class="toc-text">情况 E：没有任何处理器接管异常</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%83%85%E5%86%B5-F%EF%BC%9AVEH-%E5%9B%9E%E8%B0%83%E8%87%AA%E5%B7%B1%E5%8F%88%E5%8F%91%E7%94%9F%E5%BC%82%E5%B8%B8"><span class="toc-number">1.9.6.</span> <span class="toc-text">情况 F：VEH 回调自己又发生异常</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8D%81%E3%80%81ML64-%E6%B1%87%E7%BC%96%E5%AE%9E%E9%AA%8C%EF%BC%9A%E7%9C%9F%E6%AD%A3%E7%9A%84-VEH-%E6%81%A2%E5%A4%8D-UD2%EF%BC%8C%E8%80%8C%E4%B8%8D%E6%98%AF-SEH"><span class="toc-number">1.10.</span> <span class="toc-text">十、ML64 汇编实验：真正的 VEH 恢复 UD2，而不是 SEH</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-%E9%A2%84%E6%9C%9F%E6%B5%81%E7%A8%8B"><span class="toc-number">1.10.1.</span> <span class="toc-text">1. 预期流程</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-%E5%AE%8C%E6%95%B4-ML64-%E6%B1%87%E7%BC%96%E6%BA%90%E7%A0%81%EF%BC%9Aveh-x64-masm-asm"><span class="toc-number">1.10.2.</span> <span class="toc-text">2. 完整 ML64 汇编源码：veh_x64_masm.asm</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-%E7%BC%96%E8%AF%91%E5%91%BD%E4%BB%A4"><span class="toc-number">1.10.3.</span> <span class="toc-text">3. 编译命令</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-%E6%B1%87%E7%BC%96%E9%87%8D%E7%82%B9%E9%80%90%E5%8F%A5%E8%A7%A3%E9%87%8A"><span class="toc-number">1.10.4.</span> <span class="toc-text">4. 汇编重点逐句解释</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8D%81%E4%B8%80%E3%80%81x64dbg-%E5%AE%9E%E6%88%98%EF%BC%9A%E4%BB%8E%E6%B3%A8%E5%86%8C%E7%82%B9%E4%B8%80%E8%B7%AF%E8%B7%9F%E5%88%B0-VEH-%E5%9B%9E%E8%B0%83%E5%92%8C-CONTEXT-%E6%81%A2%E5%A4%8D"><span class="toc-number">1.11.</span> <span class="toc-text">十一、x64dbg 实战：从注册点一路跟到 VEH 回调和 CONTEXT 恢复</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%8E%E4%B8%8A%E4%B8%80%E7%AF%87-SEH-%E8%B0%83%E7%94%A8%E9%93%BE%E7%9A%84%E6%96%AD%E7%82%B9%E5%AF%B9%E7%85%A7"><span class="toc-number">1.11.1.</span> <span class="toc-text">与上一篇 SEH 调用链的断点对照</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8D%81%E4%BA%8C%E3%80%81VEH-%E4%B8%8E%E5%BC%82%E5%B8%B8%E5%9E%8B%E5%8F%8D%E8%B0%83%E8%AF%95-CTF-%E9%80%86%E5%90%91%E7%9A%84%E8%81%94%E7%B3%BB"><span class="toc-number">1.12.</span> <span class="toc-text">十二、VEH 与异常型反调试 &#x2F; CTF 逆向的联系</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-%E4%B8%BA%E4%BB%80%E4%B9%88-VEH-%E5%B8%B8%E5%87%BA%E7%8E%B0%E5%9C%A8%E5%BC%82%E5%B8%B8%E9%A9%B1%E5%8A%A8%E6%8E%A7%E5%88%B6%E6%B5%81%E4%B8%AD%EF%BC%9F"><span class="toc-number">1.12.1.</span> <span class="toc-text">1. 为什么 VEH 常出现在异常驱动控制流中？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-%E4%B8%BA%E4%BB%80%E4%B9%88%E7%9B%B4%E6%8E%A5-NOP-%E6%8E%89%E6%95%85%E6%84%8F%E5%BC%82%E5%B8%B8%E5%8F%AF%E8%83%BD%E4%BB%8D%E7%84%B6%E5%A4%B1%E8%B4%A5%EF%BC%9F"><span class="toc-number">1.12.2.</span> <span class="toc-text">2. 为什么直接 NOP 掉故意异常可能仍然失败？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#3-%E4%B8%BA%E4%BB%80%E4%B9%88%E8%B0%83%E8%AF%95%E5%99%A8%E5%8F%AF%E8%83%BD%E8%AE%A9-VEH-%E7%9C%8B%E4%B8%8D%E5%88%B0%E5%BC%82%E5%B8%B8%EF%BC%9F"><span class="toc-number">1.12.3.</span> <span class="toc-text">3. 为什么调试器可能让 VEH 看不到异常？</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#4-%E7%BA%BF%E7%A8%8B%E3%80%81%E8%BF%9B%E7%A8%8B%E4%B8%8E%E5%BC%82%E5%B8%B8%E4%BC%A0%E6%92%AD%E8%BE%B9%E7%95%8C"><span class="toc-number">1.12.4.</span> <span class="toc-text">4. 线程、进程与异常传播边界</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8D%81%E4%B8%89%E3%80%81API%E3%80%81%E5%86%85%E9%83%A8%E5%87%BD%E6%95%B0%E4%B8%8E%E8%BF%94%E5%9B%9E%E5%80%BC%E9%80%9F%E6%9F%A5"><span class="toc-number">1.13.</span> <span class="toc-text">十三、API、内部函数与返回值速查</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%B8%B8%E8%A7%81%E9%94%99%E8%AF%AF%E4%B8%8E%E6%AD%A3%E7%A1%AE%E7%90%86%E8%A7%A3"><span class="toc-number">1.13.1.</span> <span class="toc-text">常见错误与正确理解</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8D%81%E5%9B%9B%E3%80%81%E7%BB%93%E8%AF%AD%EF%BC%9A%E7%9C%9F%E6%AD%A3%E7%90%86%E8%A7%A3-VEH-%E7%9A%84%E4%B8%89%E4%B8%AA%E5%85%B3%E9%94%AE%E9%97%AE%E9%A2%98"><span class="toc-number">1.14.</span> <span class="toc-text">十四、结语：真正理解 VEH 的三个关键问题</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%8F%82%E8%80%83%E8%B5%84%E6%96%99"><span class="toc-number">1.15.</span> <span class="toc-text">参考资料</span></a></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>最新文章</span></div><div class="aside-list"><div class="aside-list-item"><a class="thumbnail" href="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/" title="Windows异常处理之VEH"><img src="/img/debug/veh-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Windows异常处理之VEH"/></a><div class="content"><a class="title" href="/2026/10/13/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BVEH/" title="Windows异常处理之VEH">Windows异常处理之VEH</a><time datetime="2026-10-12T16:00:00.000Z" title="发表于 2026-10-13 00:00:00">2026-10-13</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/10/12/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSEH/" title="Windows异常处理之SEH"><img src="/img/debug/seh-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="Windows异常处理之SEH"/></a><div class="content"><a class="title" href="/2026/10/12/Windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSEH/" title="Windows异常处理之SEH">Windows异常处理之SEH</a><time datetime="2026-10-12T14:59:00.000Z" title="发表于 2026-10-12 22:59:00">2026-10-12</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/" title="windows异常处理之SetUnhandledExceptionFilter"><img src="/img/debug/setunhandled-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="windows异常处理之SetUnhandledExceptionFilter"/></a><div class="content"><a class="title" href="/2026/10/12/windows%E5%BC%82%E5%B8%B8%E5%A4%84%E7%90%86%E4%B9%8BSetUnhandledExceptionFilter/" title="windows异常处理之SetUnhandledExceptionFilter">windows异常处理之SetUnhandledExceptionFilter</a><time datetime="2026-10-12T11:17:14.000Z" title="发表于 2026-10-12 19:17:14">2026-10-12</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/10/10/windows%E5%8F%8D%E8%B0%83%E8%AF%95%E4%BB%8B%E7%BB%8D/" title="windows反调试介绍"><img src="/img/debug/fts-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="windows反调试介绍"/></a><div class="content"><a class="title" href="/2026/10/10/windows%E5%8F%8D%E8%B0%83%E8%AF%95%E4%BB%8B%E7%BB%8D/" title="windows反调试介绍">windows反调试介绍</a><time datetime="2026-10-10T02:59:05.000Z" title="发表于 2026-10-10 10:59:05">2026-10-10</time></div></div><div class="aside-list-item"><a class="thumbnail" href="/2026/09/11/SSRF%E6%BC%8F%E6%B4%9E/" title="SSRF漏洞"><img src="/img/stcs/stcs-ssrf-cover.jpg" onerror="this.onerror=null;this.src='/img/404.jpg'" alt="SSRF漏洞"/></a><div class="content"><a class="title" href="/2026/09/11/SSRF%E6%BC%8F%E6%B4%9E/" title="SSRF漏洞">SSRF漏洞</a><time datetime="2026-09-11T13:51:51.000Z" title="发表于 2026-09-11 21:51:51">2026-09-11</time></div></div></div></div></div></div></main><footer id="footer"><div class="footer-other"><div class="footer-copyright"><span class="copyright">&copy;&nbsp;2025 - 2026 By levi2005</span><span class="framework-info"><span>框架 </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 8.1.2</a><span class="footer-separator">|</span><span>主题 </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.5.4</a></span></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="阅读模式"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="日间和夜间模式切换"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="单栏和双栏切换"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="设置"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="目录"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="回到顶部"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js?v=5.5.4"></script><script src="/js/main.js?v=5.5.4"></script><div class="js-pjax"></div><script src="/music/config.js"></script><script src="/js/home-music.js"></script><script src="https://cdn.jsdelivr.net/npm/pjax@0.2.8/pjax.min.js" defer="defer"></script><script>document.addEventListener('DOMContentLoaded', () => {
+  const pjaxSelectors = ["head > title","#config-diff","#body-wrap","#rightside-config-hide","#rightside-config-show",".js-pjax"]
+
+  window.pjax = new Pjax({
+    elements: 'a:not([target="_blank"])',
+    selectors: pjaxSelectors,
+    cacheBust: false,
+    analytics: false,
+    scrollRestoration: false
+  })
+
+  const triggerPjaxFn = (val) => {
+    if (!val) return
+    Object.values(val).forEach(fn => {
+      try {
+        fn()
+      } catch (err) {
+        console.debug('Pjax callback failed:', err)
+      }
+    })
+  }
+
+  document.addEventListener('pjax:send', () => {
+    // removeEventListener
+    btf.removeGlobalFnEvent('pjaxSendOnce')
+    btf.removeGlobalFnEvent('themeChange')
+
+    // reset readmode
+    const $bodyClassList = document.body.classList
+    if ($bodyClassList.contains('read-mode')) $bodyClassList.remove('read-mode')
+
+    triggerPjaxFn(window.globalFn.pjaxSend)
+  })
+
+  document.addEventListener('pjax:complete', () => {
+    btf.removeGlobalFnEvent('pjaxCompleteOnce')
+    document.querySelectorAll('script[data-pjax]').forEach(item => {
+      const newScript = document.createElement('script')
+      const content = item.text || item.textContent || item.innerHTML || ""
+      Array.from(item.attributes).forEach(attr => newScript.setAttribute(attr.name, attr.value))
+      newScript.appendChild(document.createTextNode(content))
+      item.parentNode.replaceChild(newScript, item)
+    })
+
+    triggerPjaxFn(window.globalFn.pjaxComplete)
+  })
+
+  document.addEventListener('pjax:error', e => {
+    if (e.request.status === 404) {
+      false
+        ? pjax.loadUrl('/404.html')
+        : window.location.href = e.request.responseURL
+    }
+  })
+})</script><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">搜索</span><i class="fas fa-spinner fa-pulse" id="loading-status" hidden="hidden"></i><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  数据加载中</span></div><div class="local-search-input"><input placeholder="搜索标题、正文、标签或日期" type="text"/></div><hr/><div id="local-search-results"></div><div class="ais-Pagination" id="local-search-pagination" style="display:none;"><ul class="ais-Pagination-list"></ul></div><div id="local-search-stats"></div></div><div id="search-mask"></div><script src="/js/search/local-search.js?v=5.5.4"></script></div></div></body></html>
